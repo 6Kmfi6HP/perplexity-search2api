@@ -66,6 +66,95 @@ uvicorn server:app --host 0.0.0.0 --port 8000
 
 ---
 
+## 🐳 Docker 部署方案
+
+本项目提供了完整的 Docker 容器化支持与 GitHub Actions 多架构（`linux/amd64`, `linux/arm64`）自动化镜像编译与发布方案。
+
+### 1. Docker Compose 一键启动（推荐）
+
+项目仓库自带 `docker-compose.yml`，支持通过 `.env` 或环境变量一键拉起服务。
+
+#### 步骤一：准备配置文件
+```bash
+cp .env.example .env
+```
+在 `.env` 中填入你的认证配置（二选一）：
+- **方式 A（环境变量注入 Token）**：设置 `PERPLEXITY_SESSION_TOKEN=你的NextAuth_Token`，可选设置 `API_KEY` 保护接口。
+- **方式 B（挂载 Session 文件）**：本地若已生成 `~/.perplexity_session.json`，将其复制到项目根目录或 `./data/.perplexity_session.json`。
+
+#### 步骤二：启动容器
+```bash
+# 启动服务并在后台运行
+docker compose up -d
+
+# 查看运行日志
+docker compose logs -f
+```
+
+---
+
+### 2. 使用预编译镜像 (GHCR)
+
+无需拉取源码，直接拉取官方发布的精简安全镜像：
+
+```bash
+docker run -d \
+  --name perplexity-search2api \
+  --restart unless-stopped \
+  -p 8000:8000 \
+  -e PERPLEXITY_SESSION_TOKEN="你的NextAuth_Token" \
+  -e API_KEY="sk-your-custom-gateway-key" \
+  -v $(pwd)/data:/app/data \
+  ghcr.io/6kmfi6hp/perplexity-search2api:latest
+```
+
+---
+
+### 3. 本地构建 Docker 镜像
+
+如需在本地对源码进行定制或自建镜像：
+
+```bash
+# 构建镜像
+docker build -t perplexity-search2api:latest .
+
+# 运行镜像
+docker run -d \
+  --name perplexity-search2api \
+  -p 8000:8000 \
+  --env-file .env \
+  perplexity-search2api:latest
+```
+
+---
+
+### 4. Makefile 快捷指令
+
+```bash
+make docker-build         # 本地构建 Docker 镜像
+make docker-run           # 基于本地 .env 启动容器
+make docker-compose-up    # 使用 Compose 在后台启动并自动 build
+make docker-compose-down  # 停止并清理 Compose 容器
+```
+
+---
+
+### 5. 自动化构建与发布流程 (CI/CD)
+
+项目在 `.github/workflows/docker-publish.yml` 中配置了全自动镜像构建发布流水线：
+
+- 🚀 **多架构原生构建**：基于 QEMU + Docker Buildx，同时发布 `linux/amd64` 与 `linux/arm64` 双架构镜像。
+- 📦 **双 Registry 分发**：
+  - **GHCR (`ghcr.io/6kmfi6hp/perplexity-search2api`)**：开箱即用，自动推送到 GitHub Packages。
+  - **Docker Hub**（可选）：在 GitHub Secrets 中配置 `DOCKERHUB_USERNAME` 与 `DOCKERHUB_TOKEN` 后自动同步推送。
+- 🏷️ **语义化版本规范**：
+  - 推送到 `main` 分支：自动发布 `edge` 和 `latest`。
+  - 触发 Git Release Tag（如 `v1.0.0`）：自动生成 `1.0.0`、`1.0`、`1` 及 `latest` 标签。
+  - Pull Request：自动触发多架构构建与健康校验（不推送），保障代码质量。
+  - 镜像附带 OCI Attestation、SBOM 安全物料清单与 GHA 高速构建缓存。
+
+---
+
 ## 💻 客户端接入示例 (Python OpenAI SDK)
 
 ```python

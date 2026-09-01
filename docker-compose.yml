@@ -1,0 +1,32 @@
+services:
+  search2api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/6kmfi6hp/perplexity-search2api:latest
+    container_name: perplexity-search2api
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - API_KEY=${API_KEY:-}
+      - PERPLEXITY_SESSION_TOKEN=${PERPLEXITY_SESSION_TOKEN:-}
+      - PERPLEXITY_SESSION_PATH=/app/data/.perplexity_session.json
+      - PERPLEXITY_USER_NAME=${PERPLEXITY_USER_NAME:-}
+      - PERPLEXITY_USER_EMAIL=${PERPLEXITY_USER_EMAIL:-}
+    volumes:
+      # Persistent data directory for session token storage and auto-refreshed credentials
+      - ./data:/app/data
+      # Optional: Mount existing local session file if available
+      # - ./.perplexity_session.json:/app/data/.perplexity_session.json:rw
+    env_file:
+      - path: .env
+        required: false
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\" || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
