@@ -46,7 +46,7 @@ def parse_dotenv(path: Path) -> dict[str, str]:
 
 
 def parse_toml(path: Path) -> dict[str, Any]:
-    """解析 TOML 配置文件 (优先使用 tomli/tomllib)"""
+    """解析 TOML 配置文件 (支持 tomllib/tomli 或轻量原生解析)"""
     if not path.exists():
         return {}
     try:
@@ -54,16 +54,56 @@ def parse_toml(path: Path) -> dict[str, Any]:
 
         with open(path, "rb") as f:
             data = tomllib.load(f)
-            if "tool" in data and "pplx" in data["tool"]:
-                return data["tool"]["pplx"]
-            if "tool" in data and "perplexity" in data["tool"]:
-                return data["tool"]["perplexity"]
-            if "pplx" in data:
-                return data["pplx"]
-            return data
+            if isinstance(data, dict):
+                if "tool" in data and isinstance(data["tool"], dict):
+                    if "pplx" in data["tool"]:
+                        return data["tool"]["pplx"]
+                    if "perplexity" in data["tool"]:
+                        return data["tool"]["perplexity"]
+                if "pplx" in data:
+                    return data["pplx"]
+                return data
     except Exception:
         pass
-    return {}
+
+    try:
+        import tomli  # Python 3.10
+
+        with open(path, "rb") as f:
+            data = tomli.load(f)
+            if isinstance(data, dict):
+                if "tool" in data and isinstance(data["tool"], dict):
+                    if "pplx" in data["tool"]:
+                        return data["tool"]["pplx"]
+                    if "perplexity" in data["tool"]:
+                        return data["tool"]["perplexity"]
+                if "pplx" in data:
+                    return data["pplx"]
+                return data
+    except Exception:
+        pass
+
+    # 原生轻量 TOML 解析回退 (支持顶层键值对与 [tool.pplx] / [pplx] 块)
+    result: dict[str, Any] = {}
+    current_section = ""
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith("[") and line.endswith("]"):
+                    current_section = line[1:-1].strip()
+                    continue
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    k = k.strip()
+                    v = v.strip().strip("'\"")
+                    if k and current_section in ("tool.pplx", "tool.perplexity", "pplx", ""):
+                        result[k] = v
+    except Exception:
+        pass
+    return result
 
 
 def parse_yaml(path: Path) -> dict[str, Any]:
