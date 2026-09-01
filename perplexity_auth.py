@@ -170,9 +170,10 @@ class PerplexityAuthManager:
         except Exception:
             return False
 
-    def refresh(self) -> dict[str, Any]:
+    def refresh(self, force: bool = False) -> dict[str, Any]:
         """
         调用 NextAuth /api/auth/session 端点触发 Set-Cookie 滚动刷新 (延长 30 天有效期)
+        :param force: 是否强制立即向服务端请求刷新 Token
         """
         if not self.session_token:
             raise ValueError("当前无有效的 session_token，请先调用 extract_from_browser() 或手动配置凭据")

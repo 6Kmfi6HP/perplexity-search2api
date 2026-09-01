@@ -1,14 +1,16 @@
 """
 Perplexity API 客户端 (Perplexity Ask / Copilot / Pro Client)
-- 支持流式 (Streaming) 与非流式 (Non-streaming) 查询
+- 支持异步流式 (Async Streaming) 与同步流式 (Sync Streaming) 查询
+- 实时捕获搜索过程事件 (Search Progress / Thinking / Web Results)
 - 精准解析 Web Search 引用来源 (Sources / Citations / Web Results)
 - 兼容实时 Chunks 增量 Token 流与完整快照同步
-- 支持精准指定 Pro / Max 全系列大模型
+- 支持 Pro / Max 全系列大模型
 """
 
 import json
+import re
 import uuid
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Generator
 from typing import Any
 
 import httpx
@@ -97,11 +99,15 @@ def resolve_model_name(model_name: str | None) -> str:
     if not model_name:
         return "experimental"
     norm = model_name.strip().lower()
-    return MODEL_ALIASES.get(norm, norm)
+    if norm in MODEL_ALIASES:
+        return MODEL_ALIASES[norm]
+    # 支持带模式后缀的模型名，如 claude-3-7-sonnet-copilot, gpt-5.6-deep
+    clean_norm = re.sub(r"-(copilot|deep|concise|fast)$", "", norm)
+    return MODEL_ALIASES.get(clean_norm, norm)
 
 
 class PerplexityClient:
-    """Perplexity Search & Ask 客户端"""
+    """Perplexity Search & Ask 客户端 (支持同步与原生异步流式处理)"""
 
     def __init__(self, auth_manager: PerplexityAuthManager | None = None):
         self.auth_manager = auth_manager or PerplexityAuthManager()
@@ -132,7 +138,7 @@ class PerplexityClient:
         self,
         query: str,
         model: str = "experimental",
-        mode: str = "copilot",
+        mode: str = "concise",
         search_focus: str = "internet",
         sources: list[str] | None = None,
     ) -> dict[str, Any]:
@@ -157,38 +163,44 @@ class PerplexityClient:
             "params": params,
         }
 
-    def ask_stream(
+    async def ask_async_stream(
         self,
         query: str,
         model: str = "experimental",
-        mode: str = "copilot",
+        mode: str = "concise",
         timeout: float = 60.0,
-    ) -> Generator[dict[str, Any], None, None]:
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """
-        流式请求 Perplexity API，实时产出增量 delta、完整文本快照以及解析后的引用来源列表
+        原生异步流式请求 Perplexity API，实时产出：
+        1. 搜索与思考进度 (type="progress")
+        2. 增量文本 (type="delta")
+        3. 完整文本快照与引用源 (sources)
         """
         headers = self._build_headers()
         payload = self._build_payload(query, model=model, mode=mode)
         resolved_model = payload["params"]["model_preference"]
 
-        with httpx.Client(timeout=timeout) as client:
-            with client.stream("POST", ASK_ENDPOINT, headers=headers, json=payload) as response:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream("POST", ASK_ENDPOINT, headers=headers, json=payload) as response:
                 if response.status_code == 401:
                     # Token 过期，强制刷新并重试一次
                     self.auth_manager.refresh(force=True)
                     headers = self._build_headers()
-                    yield from self.ask_stream(query, model=model, mode=mode, timeout=timeout)
+                    async for item in self.ask_async_stream(query, model=model, mode=mode, timeout=timeout):
+                        yield item
                     return
 
                 if response.status_code != 200:
-                    error_text = response.read().decode("utf-8", errors="ignore")
+                    error_bytes = await response.aread()
+                    error_text = error_bytes.decode("utf-8", errors="ignore")
                     raise RuntimeError(f"Perplexity API 请求失败 ({response.status_code}): {error_text}")
 
                 accumulated_text = ""
                 seen_sources: dict[str, dict[str, Any]] = {}
                 display_model = resolved_model
+                last_sources_count = 0
 
-                for line in response.iter_lines():
+                async for line in response.aiter_lines():
                     if not line:
                         continue
                     if line.startswith("data: "):
@@ -208,7 +220,9 @@ class PerplexityClient:
                             display_model = event["display_model"]
 
                         delta = ""
+                        has_new_sources = False
                         blocks = event.get("blocks", [])
+
                         for b in blocks:
                             usage = b.get("intended_usage", "")
 
@@ -245,26 +259,135 @@ class PerplexityClient:
                                             "snippet": s.get("snippet", ""),
                                             "timestamp": s.get("timestamp", ""),
                                         }
+                                        has_new_sources = True
 
-                        # 产出流式数据包 (包含已捕获的最新来源)
-                        yield {
-                            "type": "delta",
-                            "delta": delta,
-                            "answer": accumulated_text,
-                            "sources": list(seen_sources.values()),
-                            "display_model": display_model,
-                            "raw_event": event,
-                        }
+                        current_sources = list(seen_sources.values())
+
+                        # 如果抓取到了新的搜索结果，但还没有正文文本，推送搜索进度事件
+                        if has_new_sources and not delta and not accumulated_text:
+                            if len(current_sources) > last_sources_count:
+                                last_sources_count = len(current_sources)
+                                yield {
+                                    "type": "progress",
+                                    "progress_type": "search",
+                                    "sources_count": len(current_sources),
+                                    "sources": current_sources,
+                                    "display_model": display_model,
+                                }
+
+                        # 如果产生了文本增量
+                        if delta or accumulated_text:
+                            yield {
+                                "type": "delta",
+                                "delta": delta,
+                                "answer": accumulated_text,
+                                "sources": current_sources,
+                                "display_model": display_model,
+                                "raw_event": event,
+                            }
+
+    def ask_stream(
+        self,
+        query: str,
+        model: str = "experimental",
+        mode: str = "concise",
+        timeout: float = 60.0,
+    ) -> Generator[dict[str, Any], None, None]:
+        """
+        同步流式请求 Perplexity API (兼容旧接口)
+        """
+        headers = self._build_headers()
+        payload = self._build_payload(query, model=model, mode=mode)
+        resolved_model = payload["params"]["model_preference"]
+
+        with httpx.Client(timeout=timeout) as client:
+            with client.stream("POST", ASK_ENDPOINT, headers=headers, json=payload) as response:
+                if response.status_code == 401:
+                    self.auth_manager.refresh(force=True)
+                    yield from self.ask_stream(query, model=model, mode=mode, timeout=timeout)
+                    return
+
+                if response.status_code != 200:
+                    error_text = response.read().decode("utf-8", errors="ignore")
+                    raise RuntimeError(f"Perplexity API 请求失败 ({response.status_code}): {error_text}")
+
+                accumulated_text = ""
+                seen_sources: dict[str, dict[str, Any]] = {}
+                display_model = resolved_model
+
+                for line in response.iter_lines():
+                    if not line or not line.startswith("data: "):
+                        continue
+                    data_str = line[6:].strip()
+                    if not data_str:
+                        continue
+                    try:
+                        event = json.loads(data_str)
+                    except Exception:
+                        continue
+
+                    if event.get("error_code"):
+                        msg = event.get("error_message") or event.get("error_code")
+                        raise RuntimeError(f"Perplexity Stream 错误: {msg}")
+
+                    if event.get("display_model"):
+                        display_model = event["display_model"]
+
+                    delta = ""
+                    blocks = event.get("blocks", [])
+                    for b in blocks:
+                        usage = b.get("intended_usage", "")
+
+                        if usage.startswith("ask_text") or "markdown_block" in b:
+                            mb = b.get("markdown_block", {})
+                            ans = mb.get("answer", "")
+                            chunks = mb.get("chunks", [])
+
+                            if ans:
+                                if len(ans) > len(accumulated_text):
+                                    delta = ans[len(accumulated_text):]
+                                    accumulated_text = ans
+                            elif chunks:
+                                d = "".join(chunks)
+                                if d:
+                                    delta = d
+                                    accumulated_text += d
+
+                        if usage in ("sources", "web_results") or "web_result_block" in b or "sources_block" in b:
+                            raw_sources = []
+                            if "web_result_block" in b:
+                                raw_sources.extend(b["web_result_block"].get("web_results", []))
+                            if "sources_block" in b:
+                                raw_sources.extend(b["sources_block"].get("sources", []))
+
+                            for s in raw_sources:
+                                url = s.get("url")
+                                if url and url not in seen_sources:
+                                    seen_sources[url] = {
+                                        "name": s.get("name") or s.get("title") or "网页",
+                                        "url": url,
+                                        "snippet": s.get("snippet", ""),
+                                        "timestamp": s.get("timestamp", ""),
+                                    }
+
+                    yield {
+                        "type": "delta",
+                        "delta": delta,
+                        "answer": accumulated_text,
+                        "sources": list(seen_sources.values()),
+                        "display_model": display_model,
+                        "raw_event": event,
+                    }
 
     def ask(
         self,
         query: str,
         model: str = "experimental",
-        mode: str = "copilot",
+        mode: str = "concise",
         timeout: float = 60.0,
     ) -> dict[str, Any]:
         """
-        非流式请求封装，等待完整结果生成完毕并附带全部引用来源
+        非流式请求封装
         """
         final_answer = ""
         sources = []

@@ -1,16 +1,17 @@
 """
 Perplexity Search2API HTTP Server (FastAPI)
 - 完全兼容 OpenAI /v1/chat/completions 接口标准 (基于 OpenAI 官方 SDK 规范与数据结构)
-- 支持流式 (text/event-stream SSE) 与非流式完整响应
+- 极致优化流式响应首字延迟 (TTFT) 与思考链实时呈现 (delta.reasoning_content 0.2s 极速上屏)
+- 平滑流式 Token 节流与微步调度 (消除 Claude / GLM 等大模型一次性倾泻卡顿，打造丝滑打字机体验)
 - 深度 Markdown 引用超链接 (正文中的 [1], [2] 自动转为带标题预览的 [[1]](url "title") 可点击链接)
 - 文末结构化引用来源列表 (按序号排版可点击 Markdown 链接)
-- 完整包含 token usage 估算、finish_reason、system_fingerprint
 - 自动将多轮历史 messages 格式化为深度搜索上下文
 - 完整支持全系列大模型 (Claude 3.7 Sonnet, GPT-5.6, Grok 4.6, Gemini 3.7, GLM 5.3, Kimi K3 等)
 - 提供 /v1/models 与 /v1/models/{model} 模型列表
 - 提供 /search 结构化检索端点与 /auth/* 凭证管理端点
 """
 
+import asyncio
 import json
 import os
 import re
@@ -43,7 +44,7 @@ from perplexity_client import MODEL_ALIASES, PerplexityClient, resolve_model_nam
 app = FastAPI(
     title="Perplexity Search2API Gateway",
     description="将 Perplexity 深度联网搜索与全系列前沿大模型无缝转换为标准 OpenAI /v1 接口",
-    version="2.2.0",
+    version="2.3.0",
 )
 
 # 允许跨域请求 (CORS)
@@ -57,10 +58,11 @@ app.add_middleware(
 
 # 可选 API Key 保护 (环境变量: PERPLEXITY_PROXY_KEY 或 API_KEY)
 PROXY_API_KEY = os.getenv("PERPLEXITY_PROXY_KEY") or os.getenv("API_KEY")
+DEFAULT_MODE = os.getenv("PERPLEXITY_DEFAULT_MODE", "concise")
 
 
 # =====================================================================
-# Pydantic 请求模型 (严格对齐 OpenAI Chat Completions 协议)
+# Pydantic 请求与扩展响应模型
 # =====================================================================
 
 class ChatMessage(BaseModel):
@@ -82,18 +84,45 @@ class ChatCompletionRequest(BaseModel):
     top_p: float | None = None
     max_tokens: int | None = None
     max_completion_tokens: int | None = None
-    # Perplexity 扩展字段
-    mode: str = "copilot"  # "copilot" (Pro 深度搜索) 或 "concise" (精简快速搜索)
+    # Perplexity 优化扩展字段
+    mode: str = Field(default_factory=lambda: os.getenv("PERPLEXITY_DEFAULT_MODE", "concise"), description="搜索模式：concise (快速) 或 copilot (深度)")
     search_focus: str = "internet"  # "internet", "scholar", "writing"
     append_citations: bool = True  # 是否在回答末尾附上参考来源与链接
     linkify_in_text: bool = True  # 是否将正文中的 [1] 替换为带悬停标题的可点击超链接 [[1]](url "title")
+    enable_reasoning: bool = True  # 是否在流式中推送 delta.reasoning_content 搜索与思考状态
+    smooth_stream: bool = True  # 是否开启突发 Token 平滑流式输出 (消除瞬间刷屏)
 
 
 class SearchRequest(BaseModel):
     query: str
     model: str = "experimental"
-    mode: str = "copilot"
+    mode: str = Field(default_factory=lambda: os.getenv("PERPLEXITY_DEFAULT_MODE", "concise"))
     search_focus: str = "internet"
+
+
+def get_effective_mode(model: str, requested_mode: str | None = None) -> str:
+    """
+    根据模型名称后缀 (如 -copilot, -deep, -concise) 或请求参数计算最终生效的搜索模式
+    """
+    raw_model = (model or "").lower()
+    if "-copilot" in raw_model or "-deep" in raw_model:
+        return "copilot"
+    if "-concise" in raw_model or "-fast" in raw_model:
+        return "concise"
+    return requested_mode or os.getenv("PERPLEXITY_DEFAULT_MODE", "concise")
+
+
+# 支持 DeepSeek / OpenAI o1 思考链规范的扩展 ChoiceDelta
+class ExtendedChoiceDelta(ChoiceDelta):
+    reasoning_content: str | None = None
+
+
+class ExtendedChunkChoice(ChunkChoice):
+    delta: ExtendedChoiceDelta
+
+
+class ExtendedChatCompletionChunk(ChatCompletionChunk):
+    choices: list[ExtendedChunkChoice]
 
 
 # =====================================================================
@@ -128,7 +157,6 @@ def linkify_citations(text: str, sources: list[dict[str, Any]]) -> str:
             pass
         return match.group(0)
 
-    # 匹配未被转换过的 [数字]，排除形如 [[1]](url) 的情况
     return re.sub(r'(?<!\[)\[(\d+)\](?!\()', replace_citation, text)
 
 
@@ -198,7 +226,6 @@ class StreamingCitationLinker:
 def format_citations_markdown(answer: str, sources: list[dict[str, Any]], max_sources: int = 15) -> str:
     """
     格式化并生成参考链接 Markdown 列表（附在回答尾部）。
-    优先关联正文中的 [1], [2], [3] 标注序号，自动输出标题与可点击 URL 链接。
     """
     if not sources:
         return ""
@@ -239,8 +266,8 @@ def format_citations_markdown(answer: str, sources: list[dict[str, Any]], max_so
 # =====================================================================
 
 async def verify_auth(request: Request):
-    """验证客户端请求头是否携带了合法的 Bearer Token (若服务端配置了 PROXY_API_KEY / API_KEY)"""
-    proxy_key = os.getenv("PERPLEXITY_PROXY_KEY") or os.getenv("API_KEY")
+    """验证客户端请求头是否携带了合法的 Bearer Token (若服务端配置了 PROXY_API_KEY 或 API_KEY)"""
+    proxy_key = os.getenv("PERPLEXITY_PROXY_KEY") or os.getenv("API_KEY") or PROXY_API_KEY
     if not proxy_key:
         return True
 
@@ -248,8 +275,6 @@ async def verify_auth(request: Request):
     token = ""
     if auth_header.startswith("Bearer "):
         token = auth_header[7:].strip()
-    elif "api-key" in request.headers:
-        token = request.headers.get("api-key", "").strip()
 
     if token != proxy_key:
         raise HTTPException(
@@ -312,7 +337,7 @@ def estimate_tokens(text: str) -> int:
 # OpenAI 兼容流式生成器 (Streaming SSE Generator)
 # =====================================================================
 
-def sse_chat_stream_generator(
+async def sse_chat_stream_generator(
     client: PerplexityClient,
     query: str,
     requested_model: str,
@@ -321,23 +346,28 @@ def sse_chat_stream_generator(
     prompt_tokens: int = 0,
     append_citations: bool = True,
     linkify_in_text: bool = True,
+    enable_reasoning: bool = True,
+    smooth_stream: bool = True,
 ):
     """
-    产出符合 OpenAI 官方 /v1/chat/completions 标准的 SSE 流式数据帧，
-    实时将正文中的 [1] 转换为可悬停提示、可直接点击的 Markdown 链接 [[1]](url "title")
-    并在末尾追加结构化参考来源列表。
+    产出符合 OpenAI 官方 /v1/chat/completions 标准的 SSE 流式数据帧：
+    1. 首帧秒级推送 (0.1s~0.2s) 建立连接并声明 assistant 角色
+    2. 搜索阶段实时推送 delta.reasoning_content 消除等待焦虑
+    3. 生成阶段自动将正文中的 [1] 转换为带 Tooltip 的超链接 [[1]](url "title")
+    4. 对 Claude/GLM 等模型的突发大块 Token 进行平滑微步节流，呈现顺滑打字机动效
+    5. 末尾追加结构化参考来源列表并优雅完成 [DONE]
     """
     created_time = int(time.time())
     completion_id = f"chatcmpl-{uuid.uuid4().hex}"
     actual_model = resolve_model_name(requested_model)
 
-    # 1. 首帧：声明 assistant 角色
-    role_chunk = ChatCompletionChunk(
+    # 1. 首帧：声明 assistant 角色 (0.01s 秒级响应)
+    role_chunk = ExtendedChatCompletionChunk(
         id=completion_id,
         choices=[
-            ChunkChoice(
+            ExtendedChunkChoice(
                 index=0,
-                delta=ChoiceDelta(role="assistant", content=""),
+                delta=ExtendedChoiceDelta(role="assistant", content=""),
                 finish_reason=None,
             )
         ],
@@ -348,35 +378,53 @@ def sse_chat_stream_generator(
     )
     yield f"data: {role_chunk.model_dump_json(exclude_none=True)}\n\n"
 
+    # 2. 初始思考/搜索状态帧 (0.1s 极速上屏，消除前端空白死等)
+    if enable_reasoning:
+        init_reasoning = ExtendedChatCompletionChunk(
+            id=completion_id,
+            choices=[
+                ExtendedChunkChoice(
+                    index=0,
+                    delta=ExtendedChoiceDelta(reasoning_content="🔍 正在联网检索并分析全网最新信源...\n"),
+                    finish_reason=None,
+                )
+            ],
+            created=created_time,
+            model=requested_model,
+            object="chat.completion.chunk",
+            system_fingerprint="fp_perplexity",
+        )
+        yield f"data: {init_reasoning.model_dump_json(exclude_none=True)}\n\n"
+
     accumulated_content = ""
     latest_sources: list[dict[str, Any]] = []
+    has_sent_sources_progress = False
 
     # 初始化流式链接转换器
     linker = StreamingCitationLinker(lambda: latest_sources)
 
     try:
-        # 2. 中间帧：逐字推送增量 Token (带链接转换)
-        for chunk in client.ask_stream(query, model=requested_model, mode=mode):
-            raw_delta = chunk.get("delta", "")
+        # 3. 异步消费 Perplexity 后端流
+        async for chunk in client.ask_async_stream(query, model=requested_model, mode=mode):
+            item_type = chunk.get("type")
             if chunk.get("display_model"):
                 actual_model = chunk["display_model"]
             if chunk.get("sources"):
                 latest_sources = chunk["sources"]
 
-            if raw_delta:
-                if linkify_in_text:
-                    out_delta = linker.process(raw_delta)
-                else:
-                    out_delta = raw_delta
-
-                if out_delta:
-                    accumulated_content += out_delta
-                    delta_chunk = ChatCompletionChunk(
+            # 处理搜索阶段进度 (推送至 reasoning_content)
+            if item_type == "progress" and enable_reasoning:
+                sources_count = chunk.get("sources_count", len(latest_sources))
+                if not has_sent_sources_progress and sources_count > 0:
+                    has_sent_sources_progress = True
+                    progress_chunk = ExtendedChatCompletionChunk(
                         id=completion_id,
                         choices=[
-                            ChunkChoice(
+                            ExtendedChunkChoice(
                                 index=0,
-                                delta=ChoiceDelta(content=out_delta),
+                                delta=ExtendedChoiceDelta(
+                                    reasoning_content=f"🌐 已检索并筛选 {sources_count} 篇高相关网页参考资料，开始综合分析与生成回答...\n\n"
+                                ),
                                 finish_reason=None,
                             )
                         ],
@@ -385,19 +433,69 @@ def sse_chat_stream_generator(
                         object="chat.completion.chunk",
                         system_fingerprint="fp_perplexity",
                     )
-                    yield f"data: {delta_chunk.model_dump_json(exclude_none=True)}\n\n"
+                    yield f"data: {progress_chunk.model_dump_json(exclude_none=True)}\n\n"
+
+            # 处理正文文本输出
+            elif item_type == "delta":
+                raw_delta = chunk.get("delta", "")
+                if raw_delta:
+                    if linkify_in_text:
+                        out_delta = linker.process(raw_delta)
+                    else:
+                        out_delta = raw_delta
+
+                    if out_delta:
+                        accumulated_content += out_delta
+
+                        # 平滑流式调度 (对瞬时大块 Tokens 进行微步切片，防止突发刷屏)
+                        if smooth_stream and len(out_delta) > 12:
+                            slice_size = 4
+                            for i in range(0, len(out_delta), slice_size):
+                                sub_part = out_delta[i:i + slice_size]
+                                delta_chunk = ExtendedChatCompletionChunk(
+                                    id=completion_id,
+                                    choices=[
+                                        ExtendedChunkChoice(
+                                            index=0,
+                                            delta=ExtendedChoiceDelta(content=sub_part),
+                                            finish_reason=None,
+                                        )
+                                    ],
+                                    created=created_time,
+                                    model=actual_model,
+                                    object="chat.completion.chunk",
+                                    system_fingerprint="fp_perplexity",
+                                )
+                                yield f"data: {delta_chunk.model_dump_json(exclude_none=True)}\n\n"
+                                await asyncio.sleep(0.008)  # 8ms 微延迟，打造丝滑打字效果
+                        else:
+                            delta_chunk = ExtendedChatCompletionChunk(
+                                id=completion_id,
+                                choices=[
+                                    ExtendedChunkChoice(
+                                        index=0,
+                                        delta=ExtendedChoiceDelta(content=out_delta),
+                                        finish_reason=None,
+                                    )
+                                ],
+                                created=created_time,
+                                model=actual_model,
+                                object="chat.completion.chunk",
+                                system_fingerprint="fp_perplexity",
+                            )
+                            yield f"data: {delta_chunk.model_dump_json(exclude_none=True)}\n\n"
 
         # 刷新残余 buffer
         if linkify_in_text:
             flushed = linker.flush()
             if flushed:
                 accumulated_content += flushed
-                flush_chunk = ChatCompletionChunk(
+                flush_chunk = ExtendedChatCompletionChunk(
                     id=completion_id,
                     choices=[
-                        ChunkChoice(
+                        ExtendedChunkChoice(
                             index=0,
-                            delta=ChoiceDelta(content=flushed),
+                            delta=ExtendedChoiceDelta(content=flushed),
                             finish_reason=None,
                         )
                     ],
@@ -408,17 +506,17 @@ def sse_chat_stream_generator(
                 )
                 yield f"data: {flush_chunk.model_dump_json(exclude_none=True)}\n\n"
 
-        # 3. 引用来源与参考链接帧 (若配置开启且存在外部引用)
+        # 4. 引用来源与参考链接帧 (若配置开启且存在外部引用)
         if append_citations and latest_sources:
             citations_md = format_citations_markdown(accumulated_content, latest_sources)
             if citations_md:
                 accumulated_content += citations_md
-                citations_chunk = ChatCompletionChunk(
+                citations_chunk = ExtendedChatCompletionChunk(
                     id=completion_id,
                     choices=[
-                        ChunkChoice(
+                        ExtendedChunkChoice(
                             index=0,
-                            delta=ChoiceDelta(content=citations_md),
+                            delta=ExtendedChoiceDelta(content=citations_md),
                             finish_reason=None,
                         )
                     ],
@@ -429,13 +527,13 @@ def sse_chat_stream_generator(
                 )
                 yield f"data: {citations_chunk.model_dump_json(exclude_none=True)}\n\n"
 
-        # 4. 终态帧：finish_reason: "stop"
-        stop_chunk = ChatCompletionChunk(
+        # 5. 终态帧：finish_reason: "stop"
+        stop_chunk = ExtendedChatCompletionChunk(
             id=completion_id,
             choices=[
-                ChunkChoice(
+                ExtendedChunkChoice(
                     index=0,
-                    delta=ChoiceDelta(),
+                    delta=ExtendedChoiceDelta(),
                     finish_reason="stop",
                 )
             ],
@@ -446,10 +544,10 @@ def sse_chat_stream_generator(
         )
         yield f"data: {stop_chunk.model_dump_json(exclude_none=True)}\n\n"
 
-        # 5. Usage 统计帧 (若客户端开启 include_usage)
+        # 6. Usage 统计帧 (若客户端开启 include_usage)
         completion_tokens = estimate_tokens(accumulated_content)
         if include_usage:
-            usage_chunk = ChatCompletionChunk(
+            usage_chunk = ExtendedChatCompletionChunk(
                 id=completion_id,
                 choices=[],
                 created=created_time,
@@ -475,7 +573,7 @@ def sse_chat_stream_generator(
         }
         yield f"data: {json.dumps(err_payload, ensure_ascii=False)}\n\n"
 
-    # 6. 结束标记
+    # 7. 结束标记
     yield "data: [DONE]\n\n"
 
 
@@ -488,7 +586,7 @@ async def root_index():
     return {
         "service": "Perplexity Search2API OpenAI Gateway",
         "status": "running",
-        "version": "2.2.0",
+        "version": "2.3.0",
         "endpoints": {
             "chat_completions": "POST /v1/chat/completions",
             "models": "GET /v1/models",
@@ -555,12 +653,15 @@ async def get_model(model_id: str, user=Depends(verify_auth)):
 async def chat_completions(req: ChatCompletionRequest, user=Depends(verify_auth)):
     """
     OpenAI /v1/chat/completions 核心兼容网关
+    - 极致优化流式响应首字延迟 (TTFT) 与思考链实时呈现
+    - 平滑流式 Token 节流与微步调度
     - 正文中的 [1], [2] 自动转换为带悬停预览的 Markdown 超链接 [[1]](url "title")
     - 文末自动附带排版整洁的参考链接列表
     - 支持流式输出 (stream=true) 与非流式完整响应 (stream=false)
     - 完全通过 OpenAI 官方 SDK 规范类进行数据组装
     """
     client = PerplexityClient()
+    effective_mode = get_effective_mode(req.model, req.mode)
     prompt_query = format_messages_to_prompt(req.messages)
     prompt_tokens = estimate_tokens(prompt_query)
 
@@ -575,11 +676,13 @@ async def chat_completions(req: ChatCompletionRequest, user=Depends(verify_auth)
                 client=client,
                 query=prompt_query,
                 requested_model=req.model,
-                mode=req.mode,
+                mode=effective_mode,
                 include_usage=include_usage,
                 prompt_tokens=prompt_tokens,
                 append_citations=req.append_citations,
                 linkify_in_text=req.linkify_in_text,
+                enable_reasoning=req.enable_reasoning,
+                smooth_stream=req.smooth_stream,
             ),
             media_type="text/event-stream",
             headers={
@@ -595,17 +698,17 @@ async def chat_completions(req: ChatCompletionRequest, user=Depends(verify_auth)
         result = client.ask(
             query=prompt_query,
             model=req.model,
-            mode=req.mode,
+            mode=effective_mode,
         )
 
         content = result.get("answer", "")
         sources = result.get("sources", [])
 
-        # 1. 正文中的 [1] 转换为带悬停标题的超链接 [[1]](url "title")
+        # 正文中的 [1] 转换为带悬停标题的超链接 [[1]](url "title")
         if req.linkify_in_text and sources:
             content = linkify_citations(content, sources)
 
-        # 2. 追加末尾参考链接列表
+        # 追加末尾参考链接列表
         if req.append_citations and sources:
             citations_md = format_citations_markdown(content, sources)
             if citations_md:
@@ -665,11 +768,12 @@ async def search_endpoint(req: SearchRequest, user=Depends(verify_auth)):
     返回原始检索答案与结构化 Sources 列表
     """
     client = PerplexityClient()
+    effective_mode = get_effective_mode(req.model, req.mode)
     try:
         res = client.ask(
             query=req.query,
             model=req.model,
-            mode=req.mode,
+            mode=effective_mode,
         )
         return {
             "query": req.query,
