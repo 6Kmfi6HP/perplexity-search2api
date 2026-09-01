@@ -29,7 +29,7 @@ import time
 import uuid
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from openai.types.chat import (
@@ -54,8 +54,6 @@ from perplexity_client import (
     VERTICAL_ALIASES,
     PerplexityClient,
     parse_model_and_vertical,
-    resolve_model_name,
-    resolve_vertical_config,
 )
 
 app = FastAPI(
@@ -651,7 +649,7 @@ async def get_verticals():
 async def list_models(user=Depends(verify_auth)):
     """返回标准 OpenAI 格式模型列表 (包含全系列大模型与垂直搜索模型)"""
     created_time = 1735689600  # 2025-01-01
-    model_ids = sorted(list(MODEL_ALIASES.keys()))
+    model_ids = sorted(MODEL_ALIASES.keys())
 
     # 包含独立垂直领域模型与常用复合模型
     vertical_ids = [
@@ -678,7 +676,7 @@ async def list_models(user=Depends(verify_auth)):
         "social:sonar",
     ]
 
-    all_ids = sorted(list(set(model_ids + vertical_ids + compound_samples)))
+    all_ids = sorted(set(model_ids + vertical_ids + compound_samples))
 
     data = [
         {

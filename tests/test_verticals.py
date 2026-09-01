@@ -1,9 +1,8 @@
 from unittest.mock import MagicMock, patch
+
 from fastapi.testclient import TestClient
 
 from perplexity_client import (
-    SEARCH_VERTICALS,
-    VERTICAL_ALIASES,
     PerplexityClient,
     RemotePerplexityClient,
     parse_model_and_vertical,

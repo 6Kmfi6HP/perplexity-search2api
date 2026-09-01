@@ -30,7 +30,6 @@ from perplexity_auth import (
 from perplexity_client import (
     MODEL_ALIASES,
     SEARCH_VERTICALS,
-    VERTICAL_ALIASES,
     PerplexityClient,
     RemotePerplexityClient,
     parse_model_and_vertical,
@@ -39,7 +38,6 @@ from perplexity_config import (
     get_config_path,
     get_remote_api_key,
     get_remote_url,
-    is_remote_mode,
     load_config,
     set_remote_config,
     unset_remote_config,
@@ -145,7 +143,7 @@ def cmd_remote(args):
             console.print(f"[bold green]✓ 远端服务健康正常 ({url})[/bold green]")
         else:
             console.print(
-                f"[bold yellow]⚠ 注意: 远端服务目前不可达或返回异常，请确认服务端已启动。[/bold yellow]"
+                "[bold yellow]⚠ 注意: 远端服务目前不可达或返回异常，请确认服务端已启动。[/bold yellow]"
             )
 
     elif action == "unset":
@@ -167,7 +165,7 @@ def cmd_remote(args):
         client = RemotePerplexityClient(url, api_key=key)
         res = client.check_health()
         if res.get("status") in ("ok", "online"):
-            console.print(f"[bold green]✓ 连通性测试通过！[/bold green]")
+            console.print("[bold green]✓ 连通性测试通过！[/bold green]")
             try:
                 models = client.get_models()
                 console.print(
@@ -323,7 +321,7 @@ def cmd_refresh(args):
         )
         client = RemotePerplexityClient(remote_url, api_key=api_key)
         try:
-            res = client.refresh_session()
+            client.refresh_session()
             console.print(
                 "[bold green]✓ 远端服务凭据已成功刷新延长 30 天！[/bold green]"
             )
