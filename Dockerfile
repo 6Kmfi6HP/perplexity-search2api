@@ -57,7 +57,7 @@ WORKDIR /app
 COPY --from=builder --chown=appuser:appuser /opt/venv /opt/venv
 
 # Copy application source files
-COPY --chown=appuser:appuser server.py perplexity_auth.py perplexity_client.py cli.py pyproject.toml README.md ./
+COPY --chown=appuser:appuser server.py perplexity_auth.py perplexity_client.py perplexity_config.py cli.py pyproject.toml README.md ./
 
 # Switch to unprivileged user
 USER appuser
