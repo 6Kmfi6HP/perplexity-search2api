@@ -28,5 +28,6 @@ def test_cli_subcommand_help():
 
 def test_cli_main_dispatch():
     from cli import main
+
     # 测试未输入任何命令时直接返回并不抛异常
     main([])

@@ -7,71 +7,96 @@ Deterministic CLI command manual for AI agents and developers.
 | Command | Aliases | Purpose | Example |
 |---|---|---|---|
 | `ask` | `search`, `s` | Execute grounded web search with citations | `pplx ask "query"` |
-| `info` | - | Inspect current authentication and token TTL | `pplx info` |
-| `refresh` | - | Renew NextAuth session token (+30 days) | `pplx refresh` |
+| `remote` | - | Manage remote API endpoint (avoid storing credentials locally) | `pplx remote set http://host:port/` |
+| `models` | - | Inspect supported models list on remote server or local runtime | `pplx models` |
+| `info` | - | Inspect current authentication, remote endpoint, and token TTL | `pplx info` |
+| `refresh` | - | Renew NextAuth session token (+30 days) on local or remote | `pplx refresh` |
 | `login` | - | Extract session token from browser via CDP | `pplx login` |
 | `serve` | - | Start OpenAI-compatible `/v1/chat/completions` gateway | `pplx serve --port 8000` |
 
 ---
 
-## 1. `pplx ask` / `pplx search` / `pplx s`
+## 1. `pplx remote`
+
+Manage and configure remote Search2API gateway endpoints. When remote mode is active, the CLI connects directly to the remote OpenAI-compatible server without requiring local NextAuth session tokens or browser cookie extraction.
 
 ### Syntax
 ```bash
-pplx ask [--model <MODEL>] [--mode <MODE>] [--raw] <query>
+pplx remote set <URL> [--api-key <KEY>] [--default-model <MODEL>]
+pplx remote show
+pplx remote test [<URL>] [--api-key <KEY>]
+pplx remote unset
+```
+
+### Subactions
+- `set <URL>`: Test connectivity and persist the remote endpoint into configuration file (`~/.perplexity_config.json`, `.env`, or `pplx.toml`).
+- `show` / `get` / `status`: Display the active mode (Remote vs Local), latency, and model availability.
+- `test` / `ping` / `check`: Probe target URL for health and list available models.
+- `unset` / `clear` / `remove`: Clear saved remote endpoint and return to local direct mode.
+
+---
+
+## 2. `pplx ask` / `pplx search` / `pplx s`
+
+### Syntax
+```bash
+pplx ask [--model <MODEL>] [--mode <MODE>] [--remote <URL>] [--api-key <KEY>] [--raw] <query>
 ```
 
 ### Options
-- `<query>`: Search question or prompt string.
-- `--model <MODEL>`: Model alias (e.g., `claude-3-7-sonnet`, `gpt-5.6`, `grok-4.6`). Defaults to `experimental`.
-- `--mode <MODE>`: Search depth mode (`copilot` [default], `concise`).
-- `--raw`: Emit raw SSE JSON events directly to stdout (useful for protocol debugging).
-
-### Exit Codes
-- `0`: Success (answers and citation list output).
-- `1`: Error encountered (authentication failure, network error, or invalid parameter).
+- `--model <MODEL>`: Choose target model (e.g. `experimental`, `claude-3-7-sonnet`, `gpt-5.6`, `grok-4.6`, `fast`, `gemini-3.7-flash`).
+- `--mode <MODE>`: Search depth mode (`copilot` for deep research, `concise` for fast answers).
+- `--remote <URL>`, `--base-url <URL>`: Explicitly override the remote gateway endpoint for this invocation.
+- `--api-key <KEY>`: Provide API key for gateway authentication.
+- `--raw`: Print unprocessed SSE JSON stream for inspection.
 
 ---
 
-## 2. `pplx info`
+## 3. `pplx models`
 
 ### Syntax
 ```bash
-pplx info
+pplx models [--remote <URL>] [--api-key <KEY>]
 ```
 
-Displays a structured table with:
-- Credentials file path (`~/.perplexity_session.json`)
-- User display name and email
-- Pro subscription status
-- NextAuth session token expiration timestamp
-- Last refresh timestamp
+Lists all available models provided by the remote gateway or supported aliases in local direct mode.
 
 ---
 
-## 3. `pplx refresh`
+## 4. `pplx info`
 
 ### Syntax
 ```bash
-pplx refresh
+pplx info [--local] [--remote <URL>] [--api-key <KEY>]
 ```
 
-Invokes `https://www.perplexity.ai/api/auth/session` using the existing token to extend validity by 30 days.
+Displays runtime mode, remote endpoint health status, and user / organization subscription credentials.
 
 ---
 
-## 4. `pplx login`
+## 5. `pplx refresh`
 
 ### Syntax
 ```bash
-pplx login
+pplx refresh [--local] [--remote <URL>]
 ```
 
-Launches automated browser session extraction to retrieve the active `__Secure-next-auth.session-token`.
+Triggers NextAuth session renewal on the remote gateway server or local token storage (+30 days sliding window).
 
 ---
 
-## 5. `pplx serve`
+## 6. `pplx login`
+
+### Syntax
+```bash
+pplx login [--local]
+```
+
+Launches automated browser session extraction to retrieve the active `__Secure-next-auth.session-token`. In remote mode, credentials extraction is not needed.
+
+---
+
+## 7. `pplx serve`
 
 ### Syntax
 ```bash
@@ -86,3 +111,6 @@ pplx serve [--host <HOST>] [--port <PORT>]
 - `GET /health`: Health check.
 - `GET /v1/models`: OpenAI-compatible models list.
 - `POST /v1/chat/completions`: Streaming & non-streaming OpenAI chat completion endpoint.
+- `POST /search`: Structured web search endpoint.
+- `GET /auth/info`: Inspect server credentials.
+- `POST /auth/refresh`: Remote token renewal.

@@ -62,7 +62,7 @@ Repository = "https://github.com/6Kmfi6HP/perplexity-search2api"
 Issues = "https://github.com/6Kmfi6HP/perplexity-search2api/issues"
 
 [tool.setuptools]
-py-modules = ["cli", "perplexity_auth", "perplexity_client", "server"]
+py-modules = ["cli", "perplexity_auth", "perplexity_client", "perplexity_config", "server"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"

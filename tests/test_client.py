@@ -41,11 +41,7 @@ def test_perplexity_client_ask_mock():
             },
             {
                 "intended_usage": "sources",
-                "sources_block": {
-                    "sources": [
-                        {"name": "Python Org", "url": "https://python.org"}
-                    ]
-                },
+                "sources_block": {"sources": [{"name": "Python Org", "url": "https://python.org"}]},
             },
         ],
     }
@@ -81,9 +77,7 @@ async def test_perplexity_client_ask_async_mock(mock_async_stream):
             {
                 "intended_usage": "web_results",
                 "web_result_block": {
-                    "web_results": [
-                        {"name": "Async Source", "url": "https://example.com/async"}
-                    ]
+                    "web_results": [{"name": "Async Source", "url": "https://example.com/async"}]
                 },
             },
         ],
@@ -100,6 +94,7 @@ async def test_perplexity_client_ask_async_mock(mock_async_stream):
     class AsyncContextManager:
         async def __aenter__(self):
             return mock_resp
+
         async def __aexit__(self, exc_type, exc_val, exc_tb):
             pass
 

@@ -1,6 +1,6 @@
 ---
 name: pplx
-description: Grounded web search, real-time citation extraction, multi-model AI reasoning, and session gateway via the `pplx` CLI. Use when the user asks to search live web data, look up recent facts or library documentation, conduct multi-model research (Sonar, Claude 3.7 Sonnet, GPT-5.6, Grok 4.6, Gemini 3.7), inspect or refresh session credentials via `pplx info` / `pplx refresh`, or run the local OpenAI-compatible API gateway with `pplx serve`.
+description: Grounded web search, real-time citation extraction, multi-model AI reasoning, and session gateway via the `pplx` CLI. Use when the user asks to search live web data, look up recent facts or library documentation, conduct multi-model research (Sonar, Claude 3.7 Sonnet, GPT-5.6, Grok 4.6, Gemini 3.7), inspect or refresh session credentials via `pplx info` / `pplx refresh`, bind remote gateway endpoints via `pplx remote set <URL>`, or run the local OpenAI-compatible API gateway with `pplx serve`.
 ---
 
 # Grounded Web Search & AI Research CLI (`pplx`)
@@ -22,53 +22,49 @@ pplx ask --mode concise "<query>"
 # 4. Check credentials and token validity TTL
 pplx info
 
-# 5. Renew session token for 30 days
+# 5. Bind remote Search2API server (avoids storing credentials locally)
+pplx remote set http://<host>:<port>/
+
+# 6. List available reasoning and search models
+pplx models
+
+# 7. Refresh session credentials (+30 days sliding window)
 pplx refresh
 ```
 
-## Deterministic Execution Process
+## Deterministic Execution Workflows
 
-Follow this sequence for every search request:
+### 1. Grounded Search Query
+Execute `pplx ask "<query>"`.
+*Success criterion*: Output contains Markdown response followed by numbered web references with source URLs.
 
-### Step 1: Probe (Model & Mode Selection)
-Select the execution tier matching the task complexity:
-- **Fast / General Search**: Use default model (`sonar` / `copilot`).
-- **Code, Architecture & Refactoring**: Use `--model claude-3-7-sonnet`.
-- **Complex Reasoning & Analysis**: Use `--model gpt-5.6` or `--model grok-4.6`.
-- **Direct Fact Retrieval**: Use `--mode concise`.
+### 2. High-Reasoning & Complex Coding Research
+Execute `pplx ask --model <model> "<query>"` with reasoning-focused models (`claude-3-7-sonnet`, `gpt-5.6`, `grok-4.6`, `gemini-3.7-flash`).
+*Success criterion*: In-depth technical synthesis returned with verified web citations.
 
-*Completion criterion*: Model alias and search mode determined before command dispatch.
+### 3. Remote Server Connection (Zero Local Credentials)
+Execute `pplx remote set <URL>` (e.g. `pplx remote set http://host:8000/`) or set `PERPLEXITY_BASE_URL` in `.env` / `~/.perplexity_config.json`.
+*Success criterion*: All CLI commands directly call the remote endpoint without needing browser login.
 
-### Step 2: Stream (CLI Execution)
-Dispatch the search query non-interactively:
-```bash
-pplx ask [--model <alias>] [--mode <mode>] "<query>"
-```
-*Completion criterion*: Process exits with code `0` and yields synthesized text containing bracketed source indices (`[1]`, `[2]`).
-
-### Step 3: Ground (Citation Preservation)
-Retain all citation brackets `[1][2]` in the final synthesized output. Include the corresponding source links listed at the bottom of the `pplx` output.
-
-*Completion criterion*: Every factual claim in the synthesized answer is backed by its numbered citation reference.
-
-### Step 4: Recover (Auth & Drift Fallback)
-If the CLI exits with non-zero or emits `401 Unauthorized`:
-1. Execute `pplx refresh` immediately to renew the NextAuth session token.
-2. Retry the original `pplx ask` command once.
-3. If refresh fails, inform the user to run `pplx login`.
-
+### 4. Authentication Maintenance
+When observing authentication failure (`401` or missing token):
+1. Run `pplx refresh` to trigger NextAuth token renewal.
+2. Retry the failed `pplx ask` query.
+3. If refresh fails, inform the user to run `pplx login` or connect via `pplx remote set <URL>`.
 *Completion criterion*: Query completes successfully on retry, or explicit authentication failure reported with remediation command.
 
 ---
 
-## Core Command Matrix
+## Command Matrix
 
-| Subcommand | Alias | Primary Purpose | Key Flags |
+| CLI Action | Alias | Core Purpose | Critical Flags |
 |---|---|---|---|
-| `ask` | `search`, `s` | Live web search with inline citations | `--model <name>`, `--mode <mode>`, `--raw` |
-| `info` | - | Display session status, token TTL, Pro tier | `-h` |
-| `refresh` | - | Renew session token (+30 days) via NextAuth API | `-h` |
-| `login` | - | Extract session cookies from Chrome/Edge via browser | `-h` |
+| `ask` | `search`, `s` | Execute grounded live search | `--model`, `--mode`, `--remote`, `--api-key`, `--raw` |
+| `remote` | - | Manage remote API endpoints | `set`, `show`, `test`, `unset` |
+| `models` | - | List available models on remote or local | `--remote`, `--api-key` |
+| `info` | - | Display authentication status & token TTL | `--local`, `--remote`, `--api-key` |
+| `refresh` | - | Renew session token (+30 days) via NextAuth API | `--local`, `--remote`, `-h` |
+| `login` | - | Extract session cookies from Chrome/Edge via browser | `--local`, `-h` |
 | `serve` | - | Launch OpenAI-compatible `/v1/chat/completions` server | `--host`, `--port` |
 
 ---
@@ -77,10 +73,11 @@ If the CLI exits with non-zero or emits `401 Unauthorized`:
 
 | Symptom | Cause | Recovery |
 |---|---|---|
-| `401 Unauthorized` / Session expired | NextAuth cookie TTL lapsed | Run `pplx refresh` and retry; if persistent, run `pplx login` |
+| `401 Unauthorized` / Session expired | NextAuth cookie TTL lapsed | Run `pplx refresh` and retry; if persistent, run `pplx login` or configure `pplx remote set <URL>` |
 | `Command not found: pplx` | CLI binary missing from `PATH` | Run `export PATH="$HOME/.local/bin:$PATH"` or `./install.sh` |
 | `Model requires Pro subscription` | Account lacks Pro entitlement | Omit `--model` flag to use default search tier |
 | SSE Stream Disconnect | Transient network drop | Re-run `pplx ask` with a concise query prompt |
+| Remote Server Offline | Host unreachable or port mismatch | Run `pplx remote test <URL>` or verify remote `pplx serve` instance |
 
 ---
 

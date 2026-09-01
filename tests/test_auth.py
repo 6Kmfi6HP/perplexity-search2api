@@ -87,7 +87,10 @@ def test_auth_manager_refresh_mock():
 
 def test_auth_manager_get_valid_token_extract():
     manager = PerplexityAuthManager({"session_token": ""})
-    with patch("perplexity_auth.extract_from_browser", return_value={"session_token": "browser_extracted_token"}):
+    with patch(
+        "perplexity_auth.extract_from_browser",
+        return_value={"session_token": "browser_extracted_token"},
+    ):
         token = manager.get_valid_token()
         assert token == "browser_extracted_token"
         assert manager.session_token == "browser_extracted_token"

@@ -8,14 +8,21 @@ default_prompt: |
   When the user asks for up-to-date information, documentation, fact-checking, or deep research:
   1. Use `pplx ask "<query>"` or `pplx ask --model <model> "<query>"`.
   2. Ground your response using the provided citation references `[1][2]...`.
-  3. If token expiration is encountered, execute `pplx refresh` and retry.
+  3. Configure remote API endpoints via `pplx remote set <URL>` or environment variables to avoid storing credentials locally.
+  4. If token expiration is encountered, execute `pplx refresh` and retry.
 commands:
   - name: ask
     command: pplx ask {query}
     description: Run a grounded web search query with citations.
+  - name: remote
+    command: pplx remote set {url}
+    description: Bind a remote Search2API endpoint to avoid storing local Perplexity credentials.
+  - name: models
+    command: pplx models
+    description: List available reasoning and search models on the remote or local runtime.
   - name: info
     command: pplx info
-    description: Inspect Perplexity session and token TTL status.
+    description: Inspect Perplexity session, remote gateway status, and token TTL.
   - name: refresh
     command: pplx refresh
     description: Refresh NextAuth session token for another 30 days.

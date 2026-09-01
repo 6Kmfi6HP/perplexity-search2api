@@ -176,7 +176,9 @@ class PerplexityAuthManager:
         :param force: 是否强制立即向服务端请求刷新 Token
         """
         if not self.session_token:
-            raise ValueError("当前无有效的 session_token，请先调用 extract_from_browser() 或手动配置凭据")
+            raise ValueError(
+                "当前无有效的 session_token，请先调用 extract_from_browser() 或手动配置凭据"
+            )
 
         cookie_str = f"__Secure-next-auth.session-token={self.session_token}"
         if self.credentials.get("org_token"):
@@ -192,7 +194,9 @@ class PerplexityAuthManager:
         with httpx.Client(timeout=15.0, follow_redirects=True) as client:
             resp = client.get(NEXTAUTH_SESSION_URL, headers=headers)
             if resp.status_code == 401:
-                raise RuntimeError("Session 已失效 (401 Unauthorized)，请重新在浏览器中 SSO 登录并提取")
+                raise RuntimeError(
+                    "Session 已失效 (401 Unauthorized)，请重新在浏览器中 SSO 登录并提取"
+                )
             if resp.status_code != 200:
                 raise RuntimeError(f"刷新 Session 失败 ({resp.status_code}): {resp.text}")
 

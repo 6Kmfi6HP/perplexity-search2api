@@ -65,6 +65,7 @@ DEFAULT_MODE = os.getenv("PERPLEXITY_DEFAULT_MODE", "concise")
 # Pydantic 请求与扩展响应模型
 # =====================================================================
 
+
 class ChatMessage(BaseModel):
     role: str = "user"  # "system", "user", "assistant", "developer", "tool"
     content: Any = ""
@@ -85,10 +86,15 @@ class ChatCompletionRequest(BaseModel):
     max_tokens: int | None = None
     max_completion_tokens: int | None = None
     # Perplexity 优化扩展字段
-    mode: str = Field(default_factory=lambda: os.getenv("PERPLEXITY_DEFAULT_MODE", "concise"), description="搜索模式：concise (快速) 或 copilot (深度)")
+    mode: str = Field(
+        default_factory=lambda: os.getenv("PERPLEXITY_DEFAULT_MODE", "concise"),
+        description="搜索模式：concise (快速) 或 copilot (深度)",
+    )
     search_focus: str = "internet"  # "internet", "scholar", "writing"
     append_citations: bool = True  # 是否在回答末尾附上参考来源与链接
-    linkify_in_text: bool = True  # 是否将正文中的 [1] 替换为带悬停标题的可点击超链接 [[1]](url "title")
+    linkify_in_text: bool = (
+        True  # 是否将正文中的 [1] 替换为带悬停标题的可点击超链接 [[1]](url "title")
+    )
     enable_reasoning: bool = True  # 是否在流式中推送 delta.reasoning_content 搜索与思考状态
     smooth_stream: bool = True  # 是否开启突发 Token 平滑流式输出 (消除瞬间刷屏)
 
@@ -129,6 +135,7 @@ class ExtendedChatCompletionChunk(ChatCompletionChunk):
 # Markdown 引用与超链接处理函数
 # =====================================================================
 
+
 def linkify_citations(text: str, sources: list[dict[str, Any]]) -> str:
     """
     将正文中所有未链接化的引用标记 [1], [2] 转换为标准的 Markdown 行内超链接：
@@ -148,7 +155,12 @@ def linkify_citations(text: str, sources: list[dict[str, Any]]) -> str:
             if 1 <= idx <= len(sources):
                 s = sources[idx - 1]
                 url = s.get("url", "")
-                name = (s.get("name") or s.get("title") or "网页来源").replace('"', "'").replace("\n", " ").strip()
+                name = (
+                    (s.get("name") or s.get("title") or "网页来源")
+                    .replace('"', "'")
+                    .replace("\n", " ")
+                    .strip()
+                )
                 if len(name) > 60:
                     name = name[:57] + "..."
                 if url:
@@ -157,7 +169,7 @@ def linkify_citations(text: str, sources: list[dict[str, Any]]) -> str:
             pass
         return match.group(0)
 
-    return re.sub(r'(?<!\[)\[(\d+)\](?!\()', replace_citation, text)
+    return re.sub(r"(?<!\[)\[(\d+)\](?!\()", replace_citation, text)
 
 
 class StreamingCitationLinker:
@@ -165,6 +177,7 @@ class StreamingCitationLinker:
     流式传输中的引用超链接实时转换器：
     处理 Token 分片 (例如 '[' 与 '1]' 分开推送)，并将实时出现的 [1] 转为 [[1]](url "title")
     """
+
     def __init__(self, sources_getter):
         self.sources_getter = sources_getter
         self.buffer = ""
@@ -181,34 +194,39 @@ class StreamingCitationLinker:
         n = len(self.buffer)
 
         while i < n:
-            if self.buffer[i] == '[':
-                close_bracket = self.buffer.find(']', i)
+            if self.buffer[i] == "[":
+                close_bracket = self.buffer.find("]", i)
                 if close_bracket == -1:
                     remaining = self.buffer[i:]
-                    if re.fullmatch(r'\[\d*', remaining):
+                    if re.fullmatch(r"\[\d*", remaining):
                         self.buffer = remaining
                         return "".join(output)
                     else:
                         output.append(self.buffer[i])
                         i += 1
                 else:
-                    tag_content = self.buffer[i+1:close_bracket]
+                    tag_content = self.buffer[i + 1 : close_bracket]
                     if tag_content.isdigit():
                         idx = int(tag_content)
                         if sources and 1 <= idx <= len(sources):
                             s = sources[idx - 1]
                             url = s.get("url", "")
-                            name = (s.get("name") or s.get("title") or "网页来源").replace('"', "'").replace("\n", " ").strip()
+                            name = (
+                                (s.get("name") or s.get("title") or "网页来源")
+                                .replace('"', "'")
+                                .replace("\n", " ")
+                                .strip()
+                            )
                             if len(name) > 60:
                                 name = name[:57] + "..."
                             if url:
                                 output.append(f'[[{idx}]]({url} "{name}")')
                             else:
-                                output.append(f'[{idx}]')
+                                output.append(f"[{idx}]")
                         else:
-                            output.append(f'[{tag_content}]')
+                            output.append(f"[{tag_content}]")
                     else:
-                        output.append(f'[{tag_content}]')
+                        output.append(f"[{tag_content}]")
                     i = close_bracket + 1
             else:
                 output.append(self.buffer[i])
@@ -223,7 +241,9 @@ class StreamingCitationLinker:
         return remaining
 
 
-def format_citations_markdown(answer: str, sources: list[dict[str, Any]], max_sources: int = 15) -> str:
+def format_citations_markdown(
+    answer: str, sources: list[dict[str, Any]], max_sources: int = 15
+) -> str:
     """
     格式化并生成参考链接 Markdown 列表（附在回答尾部）。
     """
@@ -234,7 +254,7 @@ def format_citations_markdown(answer: str, sources: list[dict[str, Any]], max_so
         return ""
 
     cited_indices = set()
-    for match in re.finditer(r'\[(\d+)\]', answer):
+    for match in re.finditer(r"\[(\d+)\]", answer):
         try:
             idx = int(match.group(1))
             if 1 <= idx <= len(sources):
@@ -264,6 +284,7 @@ def format_citations_markdown(answer: str, sources: list[dict[str, Any]], max_so
 # =====================================================================
 # 鉴权与辅助工具函数
 # =====================================================================
+
 
 async def verify_auth(request: Request):
     """验证客户端请求头是否携带了合法的 Bearer Token (若服务端配置了 PROXY_API_KEY 或 API_KEY)"""
@@ -307,7 +328,11 @@ def format_messages_to_prompt(messages: list[ChatMessage]) -> str:
     lines = []
     for msg in messages:
         role = msg.role.lower()
-        content = msg.content if isinstance(msg.content, str) else json.dumps(msg.content, ensure_ascii=False)
+        content = (
+            msg.content
+            if isinstance(msg.content, str)
+            else json.dumps(msg.content, ensure_ascii=False)
+        )
         content = content.strip()
         if not content:
             continue
@@ -328,7 +353,7 @@ def estimate_tokens(text: str) -> int:
     """快速估算文本对应的 Token 数量"""
     if not text:
         return 0
-    cjk_count = sum(1 for char in text if '\u4e00' <= char <= '\u9fff')
+    cjk_count = sum(1 for char in text if "\u4e00" <= char <= "\u9fff")
     other_count = len(text) - cjk_count
     return max(1, int(cjk_count / 1.5 + other_count / 4))
 
@@ -336,6 +361,7 @@ def estimate_tokens(text: str) -> int:
 # =====================================================================
 # OpenAI 兼容流式生成器 (Streaming SSE Generator)
 # =====================================================================
+
 
 async def sse_chat_stream_generator(
     client: PerplexityClient,
@@ -385,7 +411,9 @@ async def sse_chat_stream_generator(
             choices=[
                 ExtendedChunkChoice(
                     index=0,
-                    delta=ExtendedChoiceDelta(reasoning_content="🔍 正在联网检索并分析全网最新信源...\n"),
+                    delta=ExtendedChoiceDelta(
+                        reasoning_content="🔍 正在联网检索并分析全网最新信源...\n"
+                    ),
                     finish_reason=None,
                 )
             ],
@@ -451,7 +479,7 @@ async def sse_chat_stream_generator(
                         if smooth_stream and len(out_delta) > 12:
                             slice_size = 4
                             for i in range(0, len(out_delta), slice_size):
-                                sub_part = out_delta[i:i + slice_size]
+                                sub_part = out_delta[i : i + slice_size]
                                 delta_chunk = ExtendedChatCompletionChunk(
                                     id=completion_id,
                                     choices=[
@@ -580,6 +608,7 @@ async def sse_chat_stream_generator(
 # =====================================================================
 # API 路由实现
 # =====================================================================
+
 
 @app.get("/")
 async def root_index():

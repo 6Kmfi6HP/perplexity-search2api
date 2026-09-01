@@ -44,12 +44,58 @@ uvx --from git+https://github.com/6Kmfi6HP/perplexity-search2api.git pplx search
 
 ---
 
-### 2. 提取或配置凭据
+### 2. 配置运行模式：远端 API 模式 vs 本地直连模式
+
+#### 模式 A：远端 API 模式（推荐，电脑无需存储任何 Perplexity 凭据）
+如果你已在其他机器/服务器上部署了 `pplx serve` 网关服务，客户端电脑**完全不需要提取或存储任何 Perplexity Cookie/Token**，直接连接远端端点即可：
+
+**1. 一键命令行绑定并写入配置：**
 ```bash
-# 方式 A：从当前已登录 Perplexity 的浏览器自动提取 (推荐)
+# 绑定远端服务端点 (自动保存至配置文件)
+pplx remote set http://your-remote-server:8000/
+
+# 若远端服务开启了 API Key 鉴权：
+pplx remote set http://your-remote-server:8000/ --api-key YOUR_API_KEY
+```
+
+**2. 支持将远端配置写入多种配置文件：**
+- **`.env` 配置文件**（推荐，在项目目录或 `~/.env` 中配置）：
+  ```ini
+  PERPLEXITY_BASE_URL=http://your-remote-server:8000/
+  PERPLEXITY_API_KEY=YOUR_API_KEY
+  ```
+- **`~/.perplexity_config.json` 配置文件**（JSON 格式）：
+  ```json
+  {
+    "remote_url": "http://your-remote-server:8000/",
+    "api_key": "YOUR_API_KEY"
+  }
+  ```
+- **`pplx.toml` 配置文件**（TOML 格式）：
+  ```toml
+  [tool.pplx]
+  remote_url = "http://your-remote-server:8000/"
+  ```
+
+**3. 查看与管理远端配置：**
+```bash
+# 查看当前远端连通状态与可用模型
+pplx remote show
+
+# 测试远端端点连通性
+pplx remote test
+
+# 清除远端配置，恢复本地直连模式
+pplx remote unset
+```
+
+---
+
+#### 模式 B：本地直连模式（直接从本机浏览器提取凭证）
+若直接在本机使用 Perplexity 账号进行搜索与代理：
+```bash
+# 方式 A：从当前已登录 Perplexity 的真实浏览器自动提取 (推荐)
 pplx login
-# 或
-perplexity-search2api login
 
 # 方式 B：通过环境变量指定 Token (适合无桌面/容器/Agent 环境)
 export PERPLEXITY_SESSION_TOKEN="<你的 NextAuth Session Token>"
@@ -269,7 +315,7 @@ from openai import OpenAI
 # 将 base_url 指向本地网关
 client = OpenAI(
     base_url="http://localhost:8000/v1",
-    api_key="not-needed-for-local"  # 若服务端未配置 PERPLEXITY_PROXY_KEY 可填任意字符串
+    api_key="not-needed-for-local",  # 若服务端未配置 PERPLEXITY_PROXY_KEY 可填任意字符串
 )
 
 # 1. 查询支持的模型列表
@@ -281,8 +327,8 @@ response = client.chat.completions.create(
     model="gpt-5.6",
     messages=[
         {"role": "system", "content": "你是一个资深技术专家。"},
-        {"role": "user", "content": "2025 年主流的大模型有哪些最新突破？"}
-    ]
+        {"role": "user", "content": "2025 年主流的大模型有哪些最新突破？"},
+    ],
 )
 print("回答内容:\n", response.choices[0].message.content)
 print("Token 统计:", response.usage)
@@ -290,10 +336,8 @@ print("Token 统计:", response.usage)
 # 3. 流式对话 (Streaming)
 stream = client.chat.completions.create(
     model="claude-3-7-sonnet",
-    messages=[
-        {"role": "user", "content": "用 100 字介绍空间计算与 Vision Pro"}
-    ],
-    stream=True
+    messages=[{"role": "user", "content": "用 100 字介绍空间计算与 Vision Pro"}],
+    stream=True,
 )
 
 for chunk in stream:

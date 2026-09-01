@@ -685,6 +685,7 @@ export async function refreshPerplexityToken(
 import httpx
 from datetime import datetime, timezone
 
+
 class PerplexitySessionManager:
     def __init__(self, session_token: str, cf_clearance: str = ""):
         self.session_token = session_token
@@ -704,7 +705,7 @@ class PerplexitySessionManager:
             "Cookie": "; ".join(cookies),
             "Origin": "https://www.perplexity.ai",
             "Referer": "https://www.perplexity.ai/",
-            "Accept": "*/*"
+            "Accept": "*/*",
         }
 
         with httpx.Client(timeout=10) as client:
@@ -715,7 +716,9 @@ class PerplexitySessionManager:
             # 从 Set-Cookie 提取刷新的 session-token
             for sc in res.headers.get_list("set-cookie"):
                 if "__Secure-next-auth.session-token=" in sc:
-                    self.session_token = sc.split("__Secure-next-auth.session-token=")[1].split(";")[0]
+                    self.session_token = sc.split("__Secure-next-auth.session-token=")[1].split(
+                        ";"
+                    )[0]
 
             data = res.json()
             self.user_info = data.get("user", {})
