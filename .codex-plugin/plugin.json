@@ -1,0 +1,14 @@
+{
+  "name": "pplx",
+  "version": "0.1.0",
+  "description": "Perplexity Pro search, multi-model research, and OpenAI-compatible API gateway CLI",
+  "author": {
+    "name": "6Kmfi6HP",
+    "email": "179412085+6Kmfi6HP@users.noreply.github.com",
+    "url": "https://github.com/6Kmfi6HP"
+  },
+  "homepage": "https://github.com/6Kmfi6HP/perplexity-search2api",
+  "repository": "https://github.com/6Kmfi6HP/perplexity-search2api.git",
+  "license": "MIT",
+  "skills": "./skills/"
+}

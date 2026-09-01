@@ -1,0 +1,21 @@
+schema: 1.0.0
+name: pplx
+display_name: Perplexity Search & Research
+description: Search the web, extract grounded citations, and perform multi-model AI reasoning with the pplx CLI.
+icon: search
+default_prompt: |
+  You have access to the `pplx` CLI tool for real-time web search and multi-model research.
+  When the user asks for up-to-date information, documentation, fact-checking, or deep research:
+  1. Use `pplx ask "<query>"` or `pplx ask --model <model> "<query>"`.
+  2. Ground your response using the provided citation references `[1][2]...`.
+  3. If token expiration is encountered, execute `pplx refresh` and retry.
+commands:
+  - name: ask
+    command: pplx ask {query}
+    description: Run a grounded web search query with citations.
+  - name: info
+    command: pplx info
+    description: Inspect Perplexity session and token TTL status.
+  - name: refresh
+    command: pplx refresh
+    description: Refresh NextAuth session token for another 30 days.

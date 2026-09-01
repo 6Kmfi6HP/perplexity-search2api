@@ -99,6 +99,66 @@ perplexity-search2api serve --host 0.0.0.0 --port 8000
 
 ---
 
+## 🧩 Agent Skills & Marketplace 插件安装
+
+本项目严格遵循开放 Agent Skills 规范，支持 **Claude Code** 与 **OpenAI Codex** 插件市场一键安装。
+
+### 1. OpenAI Codex CLI (v0.117.0+)
+```bash
+# 添加市场
+codex plugin marketplace add 6Kmfi6HP/perplexity-search2api
+
+# 安装 pplx 技能插件
+codex plugin add pplx@perplexity-search2api
+```
+
+### 2. Claude Code
+```bash
+# 添加市场
+/plugin marketplace add 6Kmfi6HP/perplexity-search2api
+
+# 安装 pplx 插件
+/plugin install pplx
+```
+
+### 3. 本地一键安装脚本
+```bash
+./install.sh
+```
+
+---
+
+## 💡 Agent 使用方式与典型场景
+
+安装插件或运行 `./install.sh` 后，不同 Agent 环境的使用方式如下：
+
+### 1. Claude Code 交互使用
+- **自然语言触发 (自动路由)**：直接向 Claude Code 提问需要联网搜索的问题，如：
+  > *"用 pplx 帮我搜索 React 19 的新特性并附带引用来源"*
+- **显式指定调用**：
+  > *"/skill:pplx 搜索 FastAPI 0.115 配合 Pydantic v2 的迁移指南"*
+
+### 2. OpenAI Codex 交互使用
+- Codex 遇到需要实时数据、最新库文档或报错排查时，会自动通过 CLI 触发 `pplx ask "<query>"` 或 `pplx ask --model claude-3-7-sonnet "<query>"`。
+
+### 3. 通用 AI Agent (Cursor / Windsurf / Prime Agent / Goose)
+- `./install.sh` 会自动在 `~/.agents/skills/pplx` 与 `~/.claude/skills/pplx` 建立软链接。
+- 任何支持 Agent Skills 规范的 Agent 均可在任务中直接运行：
+  ```bash
+  pplx ask "最新安全漏洞 CVE-2026-XXXX 的影响范围"
+  ```
+
+### 4. 脚本集成与报告导出
+```bash
+# 导出为 Markdown 技术调研文档
+pplx ask --model claude-3-7-sonnet "详细对比 Turbopack 与 Vite 的架构差异" > architecture-comparison.md
+
+# 快速验证命令参数
+pplx ask --mode concise "uv tool install 本地目录命令参数"
+```
+
+---
+
 ### 6. 本地开发与源码运行
 ```bash
 git clone https://github.com/6Kmfi6HP/perplexity-search2api.git

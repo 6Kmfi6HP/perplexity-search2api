@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json.schemastore.org/codex-marketplace.json",
+  "name": "perplexity-search2api",
+  "owner": {
+    "name": "6Kmfi6HP",
+    "email": "179412085+6Kmfi6HP@users.noreply.github.com",
+    "url": "https://github.com/6Kmfi6HP"
+  },
+  "metadata": {
+    "description": "Perplexity Search2API Agent Skills & CLI plugin marketplace for Codex and Claude Code",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "pplx",
+      "description": "Real-time AI web search, multi-model reasoning, and session gateway via pplx CLI command",
+      "version": "0.1.0",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/6Kmfi6HP/perplexity-search2api.git",
+        "ref": "main"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "search",
+      "tags": [
+        "perplexity",
+        "search",
+        "ai-search",
+        "research",
+        "pplx",
+        "cli",
+        "citations",
+        "web-search"
+      ]
+    }
+  ]
+}
