@@ -1,0 +1,13 @@
+{
+  "$schema": "https://skills.sh/schemas/skills.sh.schema.json",
+  "notGrouped": "bottom",
+  "groupings": [
+    {
+      "title": "Search & AI Research",
+      "description": "Grounded web search, real-time citation extraction, and multi-model AI reasoning via Perplexity API and pplx CLI.",
+      "skills": [
+        "pplx"
+      ]
+    }
+  ]
+}

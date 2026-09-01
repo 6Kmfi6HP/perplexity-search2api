@@ -6,6 +6,12 @@ This repository provides both an OpenAI-compatible API gateway and a CLI tool (`
 
 ## Marketplace Installation
 
+### Skills.sh (Vercel Skills CLI)
+```bash
+# Install via npx skills CLI
+npx skills add 6Kmfi6HP/perplexity-search2api
+```
+
 ### Codex CLI (v0.117.0+)
 ```bash
 # Add this marketplace catalog

@@ -49,3 +49,13 @@ def test_skill_md_and_references():
     assert os.path.exists("skills/pplx/references/troubleshooting.md")
     assert os.path.exists("skills/pplx/references/examples.md")
     assert os.path.exists("skills/pplx/agents/openai.yaml")
+
+
+def test_skills_sh_config():
+    path = "skills.sh.json"
+    assert os.path.exists(path), f"{path} should exist"
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    assert "groupings" in data
+    assert len(data["groupings"]) >= 1
+    assert "pplx" in data["groupings"][0]["skills"]

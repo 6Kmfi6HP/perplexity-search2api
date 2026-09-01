@@ -147,9 +147,18 @@ perplexity-search2api serve --host 0.0.0.0 --port 8000
 
 ## 🧩 Agent Skills & Marketplace 插件安装
 
-本项目严格遵循开放 Agent Skills 规范，支持 **Claude Code** 与 **OpenAI Codex** 插件市场一键安装。
+本项目严格遵循开放 Agent Skills 规范，支持 **Skills.sh**、**Claude Code** 与 **OpenAI Codex** 插件市场一键安装。
 
-### 1. OpenAI Codex CLI (v0.117.0+)
+### 1. Skills.sh (Vercel Skills 开放生态)
+```bash
+# 一键安装技能到当前 AI Agent
+npx skills add 6Kmfi6HP/perplexity-search2api
+
+# 或指定安装 pplx 单个技能
+npx skills add 6Kmfi6HP/perplexity-search2api --skill pplx
+```
+
+### 2. OpenAI Codex CLI (v0.117.0+)
 ```bash
 # 添加市场
 codex plugin marketplace add 6Kmfi6HP/perplexity-search2api
