@@ -28,44 +28,90 @@
 
 ## 🚀 快速上手
 
-### 1. 安装依赖
+### 1. 全局安装 CLI (推荐使用 uv)
+
+支持在任何系统上一键全局安装独立 CLI 工具：
+
 ```bash
-# 推荐使用 uv
-uv venv .venv
-source .venv/bin/activate
-uv pip install -r requirements.txt
+# 全局一键安装
+uv tool install git+https://github.com/6Kmfi6HP/perplexity-search2api.git
+
+# 或者免安装直接即用即走
+uvx --from git+https://github.com/6Kmfi6HP/perplexity-search2api.git pplx search "量子计算最新突破"
 ```
+
+> **提示**：安装完成后，系统将自动注册 `pplx`、`perplexity-search2api` 和 `perplexity-api` 三个全局命令。
+
+---
 
 ### 2. 提取或配置凭据
 ```bash
 # 方式 A：从当前已登录 Perplexity 的浏览器自动提取 (推荐)
-python cli.py login
-
-# 方式 B：通过环境变量指定 Token
-export PERPLEXITY_SESSION_TOKEN="<你的 NextAuth Session Token>"
-```
-
-### 3. 命令行即时搜索提问
-```bash
-# 基础提问
-python cli.py ask "什么是量子计算？用简单的语言解释"
-
-# 指定模型
-python cli.py ask "对比 Rust 与 Go 在高并发场景的优缺点" --model claude-3-7-sonnet
-
-# 开启 --raw 调试模式 (输出底层原始 SSE 事件 JSON)
-python cli.py ask "测试提问" --model gpt-5.6 --raw
-```
-
-### 4. 启动 OpenAI 兼容接口网关
-```bash
-python cli.py serve --port 8000
+pplx login
 # 或
-uvicorn server:app --host 0.0.0.0 --port 8000
+perplexity-search2api login
+
+# 方式 B：通过环境变量指定 Token (适合无桌面/容器/Agent 环境)
+export PERPLEXITY_SESSION_TOKEN="<你的 NextAuth Session Token>"
 ```
 
 ---
 
+### 3. 命令行即时搜索提问
+
+支持使用 `pplx` 超短命令或 `perplexity-search2api` 进行搜索：
+
+```bash
+# 极简直达：直接传入搜索问题
+pplx "什么是量子计算？用简单的语言解释"
+
+# 标准搜索命令 (支持 search, ask, s 别名)
+pplx search "对比 Rust 与 Go 在高并发场景的优缺点"
+perplexity-search2api search "对比 Rust 与 Go 在高并发场景的优缺点"
+
+# 指定模型搜索
+pplx search "分析最新的科技动态" --model claude-3-7-sonnet
+perplexity-search2api ask "深度推理问题" --model grok-4.6
+
+# 调试模式 (输出底层原始 SSE 事件流 JSON)
+pplx search "测试提问" --raw
+```
+
+---
+
+### 4. 账号状态与凭证管理
+```bash
+# 查看当前账号、订阅状态与凭据有效期
+pplx info
+
+# 手动触发 NextAuth 滚动刷新 (顺延 30 天有效期)
+pplx refresh
+```
+
+---
+
+### 5. 启动 OpenAI 兼容接口网关
+```bash
+pplx serve --port 8000
+# 或
+perplexity-search2api serve --host 0.0.0.0 --port 8000
+```
+
+---
+
+### 6. 本地开发与源码运行
+```bash
+git clone https://github.com/6Kmfi6HP/perplexity-search2api.git
+cd perplexity-search2api
+uv venv .venv
+source .venv/bin/activate
+uv pip install -e .
+
+# 使用本地脚本运行
+python cli.py search "测试内容"
+```
+
+---
 ## 🐳 Docker 部署方案
 
 本项目提供了完整的 Docker 容器化支持与 GitHub Actions 多架构（`linux/amd64`, `linux/arm64`）自动化镜像编译与发布方案。

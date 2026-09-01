@@ -52,6 +52,7 @@ dev = [
 ]
 
 [project.scripts]
+pplx = "cli:main"
 perplexity-search2api = "cli:main"
 perplexity-api = "cli:main"
 

@@ -134,7 +134,15 @@ def cmd_serve(args):
     uvicorn.run("server:app", host=args.host, port=args.port, reload=False)
 
 
-def main():
+def main(argv=None):
+    if argv is None:
+        argv = sys.argv[1:]
+
+    # 如果直接输入搜索内容而非子命令，自动路由至 ask 搜索
+    known_commands = {"login", "refresh", "info", "ask", "search", "s", "serve", "-h", "--help"}
+    if argv and argv[0] not in known_commands and not argv[0].startswith("-"):
+        argv = ["ask"] + argv
+
     parser = argparse.ArgumentParser(
         description="Perplexity Search2API 客户端 & CLI 管理工具",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -150,8 +158,8 @@ def main():
     # info
     subparsers.add_parser("info", help="查看当前保存的账号、企业组织与凭证信息")
 
-    # ask
-    ask_p = subparsers.add_parser("ask", help="直接在终端发起流式搜索提问")
+    # ask / search
+    ask_p = subparsers.add_parser("ask", aliases=["search", "s"], help="直接在终端发起流式搜索提问 (别名: search, s)")
     ask_p.add_argument("query", type=str, help="搜索或提问内容")
     ask_p.add_argument("--model", type=str, default="experimental", help="模型选择 (如 experimental, claude-3-7-sonnet, grok-4.6)")
     ask_p.add_argument("--mode", type=str, default="copilot", help="搜索模式 (copilot, concise 等)")
@@ -162,7 +170,7 @@ def main():
     serve_p.add_argument("--host", type=str, default="0.0.0.0", help="监听地址 (默认 0.0.0.0)")
     serve_p.add_argument("--port", type=int, default=8000, help="监听端口 (默认 8000)")
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if not args.command:
         parser.print_help()
         return
@@ -173,7 +181,7 @@ def main():
         cmd_refresh(args)
     elif args.command == "info":
         cmd_info(args)
-    elif args.command == "ask":
+    elif args.command in ("ask", "search", "s"):
         cmd_ask(args)
     elif args.command == "serve":
         cmd_serve(args)
