@@ -1,6 +1,7 @@
 """
 Perplexity API 客户端 (Perplexity Ask / Copilot / Pro Client)
 - 支持异步流式 (Async Streaming) 与同步流式 (Sync Streaming) 查询
+- 深度兼容 Perplexity 最新 workflow_root、workflow_block、markdown_block 及 legacy 文本数据结构
 - 支持多种专业垂直搜索模型与领域 (Search Verticals & Focus Domains):
   * Web (默认全网综合搜索)
   * Patents (https://www.perplexity.ai/patents 专利检索、IPC/CPC分类与现有技术分析)
@@ -313,6 +314,139 @@ def parse_model_and_vertical(
     return clean_model, None
 
 
+def extract_event_payload(
+    event: dict[str, Any],
+    accumulated_text: str,
+    seen_sources: dict[str, dict[str, Any]],
+) -> tuple[str, str, bool]:
+    """
+    统一解析 Perplexity SSE Event 中的增量文本、完整回答与引用源。
+    支持格式：
+    1. workflow_root / workflow_block (最新专业搜索架构)
+    2. ask_text / answer / markdown_block (标准结构化回答架构)
+    3. web_results / sources_block (引用数据源)
+    4. text / answer 根节点覆盖
+    """
+    delta = ""
+    updated_text = accumulated_text
+    has_new_sources = False
+    start_sources_len = len(seen_sources)
+
+    blocks = event.get("blocks", [])
+
+    for b in blocks:
+        usage = b.get("intended_usage") or b.get("intended_use_case")
+
+        # 1. 现代化 workflow_root / workflow_block 架构解析
+        if usage == "workflow_root" or "workflow_block" in b:
+            wb = b.get("workflow_block") or b
+            steps = wb.get("steps", [])
+            for step in steps:
+                items = step.get("items", [])
+                for item in items:
+                    itype = item.get("type", "")
+                    payload = item.get("payload", {})
+
+                    # 正文内容提取
+                    if itype == "WORKFLOW_ITEM_TEXT" or "text_payload" in payload:
+                        tp = payload.get("text_payload", {})
+                        text_val = tp.get("text") or tp.get("markdown") or ""
+                        chunks_val = tp.get("chunks", [])
+
+                        if text_val:
+                            if len(text_val) > len(updated_text):
+                                delta = text_val[len(updated_text) :]
+                                updated_text = text_val
+                        elif chunks_val:
+                            d = "".join(chunks_val)
+                            if d and len(d) > len(updated_text):
+                                delta = d[len(updated_text) :]
+                                updated_text = d
+
+                    # 工作流内部实时搜索源提取
+                    if itype == "WORKFLOW_ITEM_SOURCES" or "sources_payload" in payload:
+                        sp = payload.get("sources_payload", {})
+                        for s in sp.get("sources", []):
+                            url = s.get("url")
+                            if url and url not in seen_sources:
+                                seen_sources[url] = {
+                                    "name": s.get("name") or s.get("title") or "网页",
+                                    "url": url,
+                                    "snippet": s.get("snippet", ""),
+                                }
+
+        # 2. 标准 ask_text / answer / markdown_block 架构解析
+        if usage in ("ask_text", "answer") or "markdown_block" in b:
+            mb = b.get("markdown_block") or b
+            ans = (
+                mb.get("answer")
+                or mb.get("markdown")
+                or b.get("markdown")
+                or b.get("answer")
+                or ""
+            )
+            chunks = mb.get("chunks", [])
+
+            if ans:
+                if len(ans) > len(updated_text):
+                    delta = ans[len(updated_text) :]
+                    updated_text = ans
+            elif chunks:
+                d = "".join(chunks)
+                if d:
+                    if len(d) > len(updated_text):
+                        delta = d[len(updated_text) :]
+                        updated_text = d
+                    else:
+                        delta = d
+                        updated_text += d
+
+        # 3. 独立引用源 Block (web_results, sources_block)
+        if (
+            usage in ("sources", "web_results")
+            or "web_result_block" in b
+            or "sources_block" in b
+        ):
+            raw_sources = []
+            if "web_result_block" in b:
+                raw_sources.extend(b["web_result_block"].get("web_results", []))
+            if "sources_block" in b:
+                raw_sources.extend(b["sources_block"].get("sources", []))
+
+            for s in raw_sources:
+                url = s.get("url")
+                if url and url not in seen_sources:
+                    seen_sources[url] = {
+                        "name": s.get("name") or s.get("title") or "网页",
+                        "url": url,
+                        "snippet": s.get("snippet", ""),
+                    }
+
+    # 4. 兼容根节点 web_results 列表
+    if "web_results" in event and isinstance(event["web_results"], list):
+        for s in event["web_results"]:
+            url = s.get("url")
+            if url and url not in seen_sources:
+                seen_sources[url] = {
+                    "name": s.get("name") or s.get("title") or "网页",
+                    "url": url,
+                    "snippet": s.get("snippet", ""),
+                }
+
+    # 5. 兼容旧版本纯文本根字段覆盖流
+    if not delta and "text" in event and event["text"]:
+        raw_t = event["text"]
+        if isinstance(raw_t, str) and raw_t:
+            if len(raw_t) > len(updated_text):
+                delta = raw_t[len(updated_text) :]
+                updated_text = raw_t
+
+    if len(seen_sources) > start_sources_len:
+        has_new_sources = True
+
+    return delta, updated_text, has_new_sources
+
+
 class RemotePerplexityClient:
     """
     Perplexity Search2API 远端客户端
@@ -337,7 +471,7 @@ class RemotePerplexityClient:
     def _build_headers(self) -> dict[str, str]:
         headers = {
             "Content-Type": "application/json",
-            "User-Agent": "Perplexity-CLI-Remote/2.3.0",
+            "User-Agent": "Perplexity-CLI-Remote/2.4.0",
         }
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -922,7 +1056,6 @@ class PerplexityClient:
                 accumulated_text = ""
                 seen_sources: dict[str, dict[str, Any]] = {}
                 display_model = resolved_model
-                last_sources_count = 0
 
                 async for line in response.aiter_lines():
                     if not line:
@@ -943,66 +1076,11 @@ class PerplexityClient:
                         if event.get("display_model"):
                             display_model = event["display_model"]
 
-                        delta = ""
-                        has_new_sources = False
-                        blocks = event.get("blocks", [])
-
-                        for b in blocks:
-                            usage = b.get("intended_usage") or b.get("intended_use_case")
-
-                            # 1. 结构化 Markdown 回答增量解析
-                            if usage in ("ask_text", "answer") or "markdown_block" in b:
-                                mb = b.get("markdown_block") or b
-                                ans = mb.get("answer") or mb.get("markdown") or b.get("markdown") or b.get("answer")
-                                chunks = mb.get("chunks", [])
-
-                                if ans:
-                                    if len(ans) > len(accumulated_text):
-                                        delta = ans[len(accumulated_text) :]
-                                        accumulated_text = ans
-                                elif chunks:
-                                    d = "".join(chunks)
-                                    if d:
-                                        delta = d
-                                        accumulated_text += d
-
-                            # 2. 联网搜索与引用来源解析 (web_results, sources)
-                            if (
-                                usage in ("sources", "web_results")
-                                or "web_result_block" in b
-                                or "sources_block" in b
-                            ):
-                                raw_sources = []
-                                if "web_result_block" in b:
-                                    raw_sources.extend(
-                                        b["web_result_block"].get("web_results", [])
-                                    )
-                                if "sources_block" in b:
-                                    raw_sources.extend(b["sources_block"].get("sources", []))
-
-                                for s in raw_sources:
-                                    url = s.get("url")
-                                    if url and url not in seen_sources:
-                                        seen_sources[url] = {
-                                            "name": s.get("name") or s.get("title") or "网页",
-                                            "url": url,
-                                            "snippet": s.get("snippet", ""),
-                                        }
-
-                        # 兼容非 blocks 根节点的 web_results 字段
-                        if "web_results" in event and isinstance(event["web_results"], list):
-                            for s in event["web_results"]:
-                                url = s.get("url")
-                                if url and url not in seen_sources:
-                                    seen_sources[url] = {
-                                        "name": s.get("name") or s.get("title") or "网页",
-                                        "url": url,
-                                        "snippet": s.get("snippet", ""),
-                                    }
-
-                        if len(seen_sources) > last_sources_count:
-                            has_new_sources = True
-                            last_sources_count = len(seen_sources)
+                        delta, accumulated_text, has_new_sources = extract_event_payload(
+                            event=event,
+                            accumulated_text=accumulated_text,
+                            seen_sources=seen_sources,
+                        )
 
                         # 如果当前事件产出了增量文本或新引用源，向上游派发
                         if delta or has_new_sources:
@@ -1015,20 +1093,6 @@ class PerplexityClient:
                                 "vertical": parsed_vertical or "web",
                                 "raw_event": event,
                             }
-
-                        # 兼容旧版本纯 text 全量文本覆盖流
-                        if "text" in event and not delta and event["text"]:
-                            raw_t = event["text"]
-                            if isinstance(raw_t, str) and raw_t != accumulated_text:
-                                yield {
-                                    "type": "snapshot",
-                                    "delta": "",
-                                    "answer": raw_t,
-                                    "sources": list(seen_sources.values()),
-                                    "display_model": display_model,
-                                    "vertical": parsed_vertical or "web",
-                                    "raw_event": event,
-                                }
 
     def ask_stream(
         self,
@@ -1097,7 +1161,6 @@ class PerplexityClient:
                 accumulated_text = ""
                 seen_sources: dict[str, dict[str, Any]] = {}
                 display_model = resolved_model
-                last_sources_count = 0
 
                 for line in response.iter_lines():
                     if not line:
@@ -1118,63 +1181,11 @@ class PerplexityClient:
                         if event.get("display_model"):
                             display_model = event["display_model"]
 
-                        delta = ""
-                        has_new_sources = False
-                        blocks = event.get("blocks", [])
-
-                        for b in blocks:
-                            usage = b.get("intended_usage") or b.get("intended_use_case")
-
-                            if usage in ("ask_text", "answer") or "markdown_block" in b:
-                                mb = b.get("markdown_block") or b
-                                ans = mb.get("answer") or mb.get("markdown") or b.get("markdown") or b.get("answer")
-                                chunks = mb.get("chunks", [])
-
-                                if ans:
-                                    if len(ans) > len(accumulated_text):
-                                        delta = ans[len(accumulated_text) :]
-                                        accumulated_text = ans
-                                elif chunks:
-                                    d = "".join(chunks)
-                                    if d:
-                                        delta = d
-                                        accumulated_text += d
-
-                            if (
-                                usage in ("sources", "web_results")
-                                or "web_result_block" in b
-                                or "sources_block" in b
-                            ):
-                                raw_sources = []
-                                if "web_result_block" in b:
-                                    raw_sources.extend(
-                                        b["web_result_block"].get("web_results", [])
-                                    )
-                                if "sources_block" in b:
-                                    raw_sources.extend(b["sources_block"].get("sources", []))
-
-                                for s in raw_sources:
-                                    url = s.get("url")
-                                    if url and url not in seen_sources:
-                                        seen_sources[url] = {
-                                            "name": s.get("name") or s.get("title") or "网页",
-                                            "url": url,
-                                            "snippet": s.get("snippet", ""),
-                                        }
-
-                        if "web_results" in event and isinstance(event["web_results"], list):
-                            for s in event["web_results"]:
-                                url = s.get("url")
-                                if url and url not in seen_sources:
-                                    seen_sources[url] = {
-                                        "name": s.get("name") or s.get("title") or "网页",
-                                        "url": url,
-                                        "snippet": s.get("snippet", ""),
-                                    }
-
-                        if len(seen_sources) > last_sources_count:
-                            has_new_sources = True
-                            last_sources_count = len(seen_sources)
+                        delta, accumulated_text, has_new_sources = extract_event_payload(
+                            event=event,
+                            accumulated_text=accumulated_text,
+                            seen_sources=seen_sources,
+                        )
 
                         if delta or has_new_sources:
                             yield {
