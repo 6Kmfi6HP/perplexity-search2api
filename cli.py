@@ -101,12 +101,19 @@ def cmd_ask(args):
         return
 
     # 正常终端流式渲染
-    with Live(console=console, refresh_per_second=12) as live:
-        last_sources = []
+    last_sources = []
+    ans = ""
+    if sys.stdout.isatty():
+        with Live(console=console, refresh_per_second=12) as live:
+            for chunk in client.ask_stream(query, model=model, mode=mode):
+                ans = chunk["answer"]
+                last_sources = chunk.get("sources", [])
+                live.update(Markdown(ans))
+    else:
         for chunk in client.ask_stream(query, model=model, mode=mode):
             ans = chunk["answer"]
             last_sources = chunk.get("sources", [])
-            live.update(Markdown(ans))
+        console.print(Markdown(ans))
 
     if last_sources:
         console.print("\n[bold magenta]📚 引用来源 (Sources):[/bold magenta]")

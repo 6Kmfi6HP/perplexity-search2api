@@ -1,13 +1,13 @@
 # Perplexity Search2API
 
 <p align="center">
-  <a href="https://github.com/6Kmfi6HP/perplexity-search2api/actions"><img src="https://img.shields.io/github/actions/workflow/status/6Kmfi6HP/perplexity-search2api/ci.yml?branch=main&label=CI&logo=github" alt="CI Status"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue?logo=python" alt="Python Versions"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT"></a>
   <a href="https://fastapi.tiangolo.com"><img src="https://img.shields.io/badge/FastAPI-0.115+-009688.svg?logo=fastapi&logoColor=white" alt="FastAPI"></a>
+  <a href="https://github.com/openai/openai-python"><img src="https://img.shields.io/badge/OpenAI_SDK-Compatible-black.svg?logo=openai&logoColor=white" alt="OpenAI Compatible"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green.svg" alt="License: MIT"></a>
 </p>
 
-基于对 [oh-my-pi](https://github.com/can1357/oh-my-pi) 及 Perplexity 官方 Web / SSO 鉴权机制的深度逆向工程，构建的 **Perplexity Pro / Copilot 搜索与推理能力转 OpenAI 兼容 API 服务及终端 CLI 工具**。
+基于对 [oh-my-pi](https://github.com/can1357/oh-my-pi) 及 Perplexity 官方 Web / SSO 鉴权机制的深度逆向工程，构建的 **Perplexity Pro / Copilot 联网搜索与推理能力转 OpenAI 官方标准 `/v1/chat/completions` 网关服务及终端 CLI 工具**。
 
 ---
 
@@ -18,214 +18,127 @@
 - 🔄 **自动滚动刷新机制 (Rolling Session)**：
   逆向 NextAuth `/api/auth/session` 端点，支持无感会话保活与 30 天滑动窗口刷新，使登录态永不过期。
 - 🌐 **原生 Copilot / Pro 级搜索与引用提取**：
-  直连 `https://www.perplexity.ai/rest/sse/perplexity_ask`，支持极速流式 (SSE) 渲染与引用来源 (Sources / Citations) 解析。
+  直连 `https://www.perplexity.ai/rest/sse/perplexity_ask`，支持极速流式 (SSE) 渲染与引用来源 (Sources / Citations) 结构化解析。
 - 🤖 **全系列顶级大模型路由**：
-  支持直通 `Claude 5 / Sonnet`、`GPT-5.6 / 4o`、`Grok 4.6`、`Gemini 3.7 Thinking`、`GLM 5.3`、`Kimi K3`、`Nemotron 3 Ultra` 等数十种顶级模型。
-- ⚡ **OpenAI 兼容接口**：
-  提供标准 `/v1/chat/completions` 与 `/v1/models`，可直接无缝接入 NextChat、ChatBox、LobeChat、Dify、沉浸式翻译或 Cursor 等生态。
-- 🛡️ **安全配置与容器友好**：
-  支持可选的 `API_KEY` 访问鉴权、`PERPLEXITY_SESSION_TOKEN` 环境变量注入与 Docker / CI / Serverless 部署支持。
+  支持直通 `Claude 3.7 Sonnet`、`GPT-5.6 / 4o`、`Grok 4.6`、`Gemini 3.7 Thinking`、`GLM 5.3`、`Kimi K3`、`Nemotron 3 Ultra` 等数十种顶级模型。
+- ⚡ **100% 严格对齐 OpenAI 官方 SDK 规范**：
+  网关完全基于 `openai.types.chat` (`ChatCompletion`, `ChatCompletionChunk`, `CompletionUsage`) 标准数据结构构建，支持流式 (SSE) 与非流式、Token 统计、Finish Reason 以及完整的上下文会话拼接。
 
 ---
 
 ## 🚀 快速上手
 
-### 1. 环境准备与依赖安装
-
-推荐使用 [uv](https://github.com/astral-sh/uv) 或 Python 虚拟环境：
-
+### 1. 安装依赖
 ```bash
-# 克隆仓库
-git clone https://github.com/6Kmfi6HP/perplexity-search2api.git
-cd perplexity-search2api
-
-# 创建虚拟环境并安装依赖
-uv venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-uv pip install -e ".[dev]"
+# 推荐使用 uv
+uv venv .venv
+source .venv/bin/activate
+uv pip install -r requirements.txt
 ```
 
-若需使用自动从真实浏览器提取凭据功能，请确保全局安装了 `agent-browser`：
-
+### 2. 提取或配置凭据
 ```bash
-npm install -g agent-browser
+# 方式 A：从当前已登录 Perplexity 的浏览器自动提取 (推荐)
+python cli.py login
+
+# 方式 B：通过环境变量指定 Token
+export PERPLEXITY_SESSION_TOKEN="<你的 NextAuth Session Token>"
 ```
-
----
-
-### 2. 凭证提取与管理
-
-#### 一键从浏览器提取登录凭据
-在您的 Chrome 浏览器中打开并登录 [Perplexity.ai](https://www.perplexity.ai)（包含 SSO / Linux Do 登录），随后在终端执行：
-
-```bash
-perplexity-search2api login
-# 或直接运行：python cli.py login
-```
-
-#### 查看当前凭据与有效期状态
-```bash
-perplexity-search2api info
-```
-
-#### 手动滚动刷新 Token (顺延 30 天有效期)
-```bash
-perplexity-search2api refresh
-```
-
----
 
 ### 3. 命令行即时搜索提问
-
 ```bash
-# 标准交互搜索
-perplexity-search2api ask "什么是量子计算？用简单清晰的语言解释"
+# 基础提问
+python cli.py ask "什么是量子计算？用简单的语言解释"
 
-# 指定模型与搜索模式
-perplexity-search2api ask "分析 2026 年最新大模型技术趋势" --model claude-3-7-sonnet --mode copilot
+# 指定模型
+python cli.py ask "对比 Rust 与 Go 在高并发场景的优缺点" --model claude-3-7-sonnet
 
-# RAW 调试模式 (直接打印 Perplexity 原始 SSE 事件流 JSON)
-perplexity-search2api ask "测试提问" --raw
+# 开启 --raw 调试模式 (输出底层原始 SSE 事件 JSON)
+python cli.py ask "测试提问" --model gpt-5.6 --raw
+```
+
+### 4. 启动 OpenAI 兼容接口网关
+```bash
+python cli.py serve --port 8000
+# 或
+uvicorn server:app --host 0.0.0.0 --port 8000
 ```
 
 ---
 
-### 4. 启动 OpenAI 兼容 HTTP 服务
+## 💻 客户端接入示例 (Python OpenAI SDK)
 
-```bash
-# 启动 API 服务 (默认监听 0.0.0.0:8000)
-perplexity-search2api serve --port 8000
-# 或运行：python server.py
-```
+```python
+from openai import OpenAI
 
-服务就绪后，即可访问交互式 API 文档：`http://localhost:8000/docs`。
+# 将 base_url 指向本地网关
+client = OpenAI(
+    base_url="http://localhost:8000/v1",
+    api_key="not-needed-for-local"  # 若服务端未配置 PERPLEXITY_PROXY_KEY 可填任意字符串
+)
 
----
+# 1. 查询支持的模型列表
+models = client.models.list()
+print(f"支持的模型总数: {len(models.data)}")
 
-## 🔌 API 接口与使用示例
+# 2. 非流式对话 (Non-streaming)
+response = client.chat.completions.create(
+    model="gpt-5.6",
+    messages=[
+        {"role": "system", "content": "你是一个资深技术专家。"},
+        {"role": "user", "content": "2025 年主流的大模型有哪些最新突破？"}
+    ]
+)
+print("回答内容:\n", response.choices[0].message.content)
+print("Token 统计:", response.usage)
 
-### 1. OpenAI 兼容 Chat Completions (`/v1/chat/completions`)
-
-```bash
-curl -X POST http://localhost:8000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "claude-3-7-sonnet",
-    "messages": [
-      {"role": "user", "content": "请介绍 2026 年最先进的 Agent 架构"}
+# 3. 流式对话 (Streaming)
+stream = client.chat.completions.create(
+    model="claude-3-7-sonnet",
+    messages=[
+        {"role": "user", "content": "用 100 字介绍空间计算与 Vision Pro"}
     ],
-    "stream": false
-  }'
-```
+    stream=True
+)
 
-### 2. 专用结构化搜索接口 (`/search`)
-
-```bash
-curl -X POST http://localhost:8000/search \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "Linux Do 社区最新热门帖子",
-    "model": "experimental",
-    "mode": "copilot"
-  }'
-```
-
-### 3. 查看可用模型列表 (`/v1/models`)
-
-```bash
-curl http://localhost:8000/v1/models
+for chunk in stream:
+    if chunk.choices and chunk.choices[0].delta.content:
+        print(chunk.choices[0].delta.content, end="", flush=True)
 ```
 
 ---
 
-## 🧭 支持模型与别名映射 (Model Aliases)
+## 📚 接口端点清单
 
-| 类别 | 推荐请求名称 (Alias) | Perplexity 后端内部模型 | 说明 |
-| :--- | :--- | :--- | :--- |
-| **官方默认** | `experimental`, `auto`, `default` | `experimental` | Perplexity 综合最优自动路由 |
-| **Sonar** | `sonar-pro`, `pplx_pro`, `sonar` | `pplx_pro` | Perplexity 官方 Sonar 深度搜索 |
-| **Claude** | `claude-3-7-sonnet`, `claude-3.7-sonnet` | `claude50sonnet` | Anthropic Claude 旗舰模型 |
-| **GPT** | `gpt-5.6`, `gpt-5`, `gpt-4o` | `gpt56_terra` | OpenAI GPT 系列旗舰模型 |
-| **GPT (Sol)** | `gpt-5.6-sol`, `gpt56_sol` | `gpt56_sol` | OpenAI 高速轻量模型 |
-| **Grok** | `grok-4.6`, `grok-3`, `grok` | `grok46low` | xAI Grok 旗舰推理模型 |
-| **Gemini** | `gemini-3.7-thinking`, `gemini-thinking` | `gemini37thinking` | Google 深度思考与长上下文模型 |
-| **GLM** | `glm-5.3`, `glm-5`, `glm` | `glm_5_3_thinking` | 智谱 GLM 思考模型 |
-| **Kimi** | `kimi-k3`, `kimi-k3-thinking`, `kimi` | `kimik3thinking` | 月之暗面 Kimi 深度推理模型 |
-| **Nemotron**| `nemotron-3-ultra`, `nemotron` | `nv_nemotron_3_ultra` | NVIDIA 旗舰推理模型 |
+| 方法 | 端点 | 说明 |
+|---|---|---|
+| `POST` | `/v1/chat/completions` | **OpenAI 核心对话补全接口** (支持 `stream=true/false`，对齐官方 SDK) |
+| `GET` | `/v1/models` | 获取当前支持的全部大模型列表 |
+| `GET` | `/v1/models/{model_id}` | 获取指定模型信息 |
+| `POST` | `/search` | Perplexity 原生结构化搜索端点 (返回答案与 Sources 列表) |
+| `GET` | `/auth/info` | 查看当前凭据 TTL、用户信息及企业组织身份 |
+| `POST` | `/auth/refresh` | 手动触发凭证滚动刷新 (顺延 30 天) |
+| `GET` | `/health` | 服务健康检查 |
 
 ---
 
-## ⚙️ 环境变量配置
+## 🎯 常用模型别名对照
 
-支持通过环境变量或根目录 `.env` 文件定制配置：
-
-| 变量名 | 默认值 | 描述 |
-| :--- | :--- | :--- |
-| `HOST` | `0.0.0.0` | 服务端监听 IP 地址 |
-| `PORT` | `8000` | 服务端监听端口 |
-| `API_KEY` | *(空)* | 可选的代理鉴权 Key。设置后需在请求头携带 `Authorization: Bearer <API_KEY>` |
-| `PERPLEXITY_SESSION_PATH` | `~/.perplexity_session.json` | 凭据存储文件绝对路径 |
-| `PERPLEXITY_SESSION_TOKEN`| *(空)* | 直接从环境变量注入 NextAuth Session Token (适用于 Docker / CI) |
-| `PERPLEXITY_USER_NAME` | `Env User` | 环境变量注入模式下的默认用户名 |
-| `PERPLEXITY_USER_EMAIL`| *(空)* | 环境变量注入模式下的用户邮箱 |
-
----
-
-## 📁 目录结构
-
-```
-perplexity-search2api/
-├── .github/
-│   ├── workflows/ci.yml                # GitHub Actions 自动化持续集成
-│   ├── ISSUE_TEMPLATE/                 # 问题与功能建议模板
-│   └── PULL_REQUEST_TEMPLATE.md        # 合并请求规范模板
-├── tests/                              # Pytest 单元测试集
-│   ├── test_auth.py
-│   ├── test_client.py
-│   ├── test_server.py
-│   └── test_cli.py
-├── .editorconfig                       # 统一跨编辑器代码格式规范
-├── .env.example                        # 环境变量模板示例
-├── .gitignore                          # 严格的凭证脱敏与忽略规则
-├── CODE_OF_CONDUCT.md                  # 社区行为准则
-├── CONTRIBUTING.md                     # 开源贡献与 Git 提交规范
-├── LICENSE                             # MIT 开源许可证
-├── pyproject.toml                      # 现代 PEP 517/621 包构建与 Ruff/Pytest 配置
-├── README.md                           # 项目说明文档
-├── requirements.txt                    # 依赖清单
-├── perplexity-oauth-technical-details.md # 深度逆向技术解析文档
-├── perplexity_auth.py                  # 认证、SSO 提取与会话滚动刷新器
-├── perplexity_client.py                # Perplexity Ask / Pro 搜索与流式客户端
-├── cli.py                              # 丰富交互的终端命令行工具
-└── server.py                           # FastAPI / OpenAI 兼容 HTTP 服务端
-```
+| 友好别名 (请求可直接传) | Perplexity 后端真实 Key | 说明 |
+|---|---|---|
+| `experimental` / `auto` / `best` | `experimental` | Perplexity 智能优选模型 |
+| `gpt-5.6` / `gpt-4o` | `gpt56_terra` | OpenAI GPT-5.6 深度思考版 |
+| `gpt-5.6-instant` | `gpt56_sol` | OpenAI GPT-5.6 极速版 |
+| `claude-3-7-sonnet` / `claude-3.7-sonnet` | `claude50sonnet` | Anthropic Claude 3.7 Sonnet |
+| `claude-opus` / `claude-3-opus` | `claude50opus` | Anthropic Claude 3 Opus |
+| `grok-4.6` / `grok-4` | `grok46low` | xAI Grok 4.6 深度思考版 |
+| `gemini-3.7-flash` | `gemini37flash` | Google Gemini 3.7 Flash |
+| `gemini-3.1-pro` | `gemini31pro_high` | Google Gemini 3.1 Pro |
+| `glm-5.3` | `glm_5_3_thinking` | 智谱 GLM 5.3 深度思考版 |
+| `kimi-k3` | `kimik3thinking` | 月之暗面 Kimi K3 深度思考版 |
+| `nemotron-3` | `nv_nemotron_3_ultra` | NVIDIA Nemotron 3 Ultra |
 
 ---
 
-## 🧪 运行测试
-
-```bash
-pytest -v
-ruff check .
-```
-
----
-
-## 📖 技术深度解析
-
-如需了解 Perplexity Web 接口调用细节、SSE 事件流格式、NextAuth 滚动刷新算法以及反逆向工程细节，请参阅技术文档：
-👉 [Perplexity OAuth & API 深度逆向技术解析](perplexity-oauth-technical-details.md)
-
----
-
-## ⚠️ 免责声明 (Disclaimer)
-
-1. 本项目仅供技术研究、逆向工程学习和个人合法合规使用，严禁用于任何商业牟利或恶意爬取行为。
-2. 使用本项目时，请自觉遵守 [Perplexity 服务条款](https://www.perplexity.ai/tos) 及相关法律法规。
-3. 请妥善保管您的本地凭证文件 (`.perplexity_session.json`)，切勿将其公开或提交至公共代码仓库。
-
----
-
-## 📄 开源许可证
-
-本项目基于 [MIT License](LICENSE) 许可证开源。
+## 📄 开源许可
+MIT License

@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+# pyrefly: ignore [missing-import]
 import httpx
 
 APP_USER_AGENT = "Perplexity/641 CFNetwork/1568 Darwin/25.2.0"
@@ -152,6 +153,10 @@ class PerplexityAuthManager:
     def __init__(self, credentials: dict[str, Any] | None = None):
         self.credentials = credentials if credentials is not None else load_credentials()
         self.session_token = self.credentials.get("session_token", "")
+
+    @property
+    def cf_clearance(self) -> str | None:
+        return self.credentials.get("cf_clearance")
 
     def is_expired(self) -> bool:
         """检查凭据是否过期或即将过期 (提前 12 小时判断)"""
