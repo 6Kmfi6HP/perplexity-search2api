@@ -80,3 +80,62 @@ def test_chat_completions_non_stream():
         assert len(data["choices"]) == 1
         assert "This is a test answer" in data["choices"][0]["message"]["content"]
         assert "usage" in data
+
+
+def test_get_single_model_not_found():
+    response = client.get("/v1/models/non-existent-model-xyz")
+    assert response.status_code == 404
+    data = response.json()
+    assert "error" in data["detail"]
+
+
+def test_search_endpoint():
+    mock_res = {
+        "query": "Test Search",
+        "answer": "Search answer content",
+        "sources": [{"name": "S1", "url": "https://example.com/s1"}],
+        "model": "experimental",
+    }
+    with patch("server.PerplexityClient.ask", return_value=mock_res):
+        resp = client.post("/search", json={"query": "Test Search"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["answer"] == "Search answer content"
+        assert len(data["sources"]) == 1
+
+
+def test_chat_completions_stream():
+    async def mock_ask_stream(query, model, mode):
+        yield {
+            "type": "progress",
+            "sources_count": 1,
+            "display_model": "claude-3-7-sonnet",
+        }
+        yield {
+            "type": "delta",
+            "delta": "Hello ",
+            "answer": "Hello ",
+            "sources": [{"name": "Doc 1", "url": "https://example.com/doc1"}],
+            "display_model": "claude-3-7-sonnet",
+        }
+        yield {
+            "type": "delta",
+            "delta": "world [1]!",
+            "answer": "Hello world [1]!",
+            "sources": [{"name": "Doc 1", "url": "https://example.com/doc1"}],
+            "display_model": "claude-3-7-sonnet",
+        }
+
+    with patch("server.PerplexityClient.ask_async_stream", side_effect=mock_ask_stream):
+        payload = {
+            "model": "claude-3-7-sonnet",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "stream": True,
+            "smooth_stream": False,
+        }
+        response = client.post("/v1/chat/completions", json=payload)
+        assert response.status_code == 200
+        assert "text/event-stream" in response.headers["content-type"]
+        body = response.text
+        assert "data: " in body
+        assert "[DONE]" in body

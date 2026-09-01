@@ -83,3 +83,16 @@ def test_auth_manager_refresh_mock():
                 res = manager.refresh()
                 assert res["session_token"] == "new_token_777"
                 assert res["user"]["name"] == "Refreshed User"
+
+
+def test_auth_manager_get_valid_token_extract():
+    manager = PerplexityAuthManager({"session_token": ""})
+    with patch("perplexity_auth.extract_from_browser", return_value={"session_token": "browser_extracted_token"}):
+        token = manager.get_valid_token()
+        assert token == "browser_extracted_token"
+        assert manager.session_token == "browser_extracted_token"
+
+
+def test_auth_manager_get_valid_token_existing():
+    manager = PerplexityAuthManager({"session_token": "existing_valid_token"})
+    assert manager.get_valid_token() == "existing_valid_token"

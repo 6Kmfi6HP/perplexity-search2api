@@ -226,6 +226,7 @@ class PerplexityAuthManager:
             # 尝试从浏览器提取
             creds = extract_from_browser()
             self.credentials = creds
+            self.session_token = self.credentials.get("session_token", "")
             return self.session_token
 
         if self.is_expired():
@@ -235,5 +236,6 @@ class PerplexityAuthManager:
                 # 刷新失败时尝试重新从浏览器提取
                 creds = extract_from_browser()
                 self.credentials = creds
+                self.session_token = self.credentials.get("session_token", "")
 
         return self.session_token

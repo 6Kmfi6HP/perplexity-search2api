@@ -379,6 +379,40 @@ class PerplexityClient:
                         "raw_event": event,
                     }
 
+    ask_stream_async = ask_async_stream
+
+    async def ask_async(
+        self,
+        query: str,
+        model: str = "experimental",
+        mode: str = "concise",
+        timeout: float = 60.0,
+    ) -> dict[str, Any]:
+        """
+        异步非流式请求封装
+        """
+        final_answer = ""
+        sources = []
+        display_model = model
+        raw_event = {}
+
+        async for chunk in self.ask_async_stream(query, model=model, mode=mode, timeout=timeout):
+            if chunk.get("answer"):
+                final_answer = chunk["answer"]
+            if chunk.get("sources"):
+                sources = chunk["sources"]
+            if chunk.get("display_model"):
+                display_model = chunk["display_model"]
+            raw_event = chunk.get("raw_event", {})
+
+        return {
+            "query": query,
+            "answer": final_answer,
+            "sources": sources,
+            "model": display_model,
+            "raw_event": raw_event,
+        }
+
     def ask(
         self,
         query: str,
