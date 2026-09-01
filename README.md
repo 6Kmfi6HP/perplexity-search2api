@@ -19,8 +19,10 @@
   逆向 NextAuth `/api/auth/session` 端点，支持无感会话保活与 30 天滑动窗口刷新，使登录态永不过期。
 - 🌐 **原生 Copilot / Pro 级搜索与引用提取**：
   直连 `https://www.perplexity.ai/rest/sse/perplexity_ask`，支持极速流式 (SSE) 渲染与引用来源 (Sources / Citations) 结构化解析。
-- 🤖 **全系列顶级大模型路由**：
-  支持直通 `Claude 3.7 Sonnet`、`GPT-5.6 / 4o`、`Grok 4.6`、`Gemini 3.7 Thinking`、`GLM 5.3`、`Kimi K3`、`Nemotron 3 Ultra` 等数十种顶级模型。
+- 🔬 **全域专业搜索垂直模型 (Verticals)**：
+  完整支持 **Perplexity Patents** (专利检索/IPC/CPC分析)、**Perplexity Academic** (学术论文/arXiv/PubMed/JSTOR)、**Perplexity Finance** (金融行情/SEC财报/业绩纪要/华尔街目标价)、**Social** (Reddit/Twitter社区真实口碑) 与 **Health** (临床医疗指南)。
+- 🤖 **全系列顶级大模型路由 & 复合模型语法**：
+  支持直通 `Claude 3.7 Sonnet`、`GPT-5.6 / 4o`、`Grok 4.6`、`Gemini 3.7 Thinking`、`GLM 5.3`、`Kimi K3`、`Nemotron 3 Ultra` 等数十种顶级模型，并支持 OpenAI 复合模型语法（如 `patents:claude-3-7-sonnet`、`academic:sonar`、`finance:gpt-5.6`）。
 - ⚡ **100% 严格对齐 OpenAI 官方 SDK 规范**：
   网关完全基于 `openai.types.chat` (`ChatCompletion`, `ChatCompletionChunk`, `CompletionUsage`) 标准数据结构构建，支持流式 (SSE) 与非流式、Token 统计、Finish Reason 以及完整的上下文会话拼接。
 

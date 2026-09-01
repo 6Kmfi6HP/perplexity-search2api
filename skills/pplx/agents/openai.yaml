@@ -1,25 +1,40 @@
 schema: 1.0.0
 name: pplx
 display_name: Perplexity Search & Research
-description: Search the web, extract grounded citations, and perform multi-model AI reasoning with the pplx CLI.
+description: Grounded web search, specialized vertical search (Patents, Academic, Finance, Social), real-time citation extraction, and multi-model AI reasoning via the pplx CLI.
 icon: search
 default_prompt: |
-  You have access to the `pplx` CLI tool for real-time web search and multi-model research.
-  When the user asks for up-to-date information, documentation, fact-checking, or deep research:
-  1. Use `pplx ask "<query>"` or `pplx ask --model <model> "<query>"`.
-  2. Ground your response using the provided citation references `[1][2]...`.
-  3. Configure remote API endpoints via `pplx remote set <URL>` or environment variables to avoid storing credentials locally.
-  4. If token expiration is encountered, execute `pplx refresh` and retry.
+  You have access to the `pplx` CLI tool for real-time web search, specialized vertical research (Patents, Academic, Finance, Social), and multi-model AI reasoning.
+  When the user asks for information:
+  1. For patents, prior art & claims: `pplx ask --patents "<query>"`.
+  2. For scientific literature, arXiv & papers: `pplx ask --academic "<query>"`.
+  3. For financial markets, earnings & SEC filings: `pplx ask --finance "<query>"`.
+  4. For community discussions & Reddit opinions: `pplx ask --social "<query>"`.
+  5. For general web research: `pplx ask "<query>"` or `pplx ask --model claude-3-7-sonnet "<query>"`.
+  6. Ground responses using provided citation references `[1][2]...`.
+  7. Configure remote API endpoints via `pplx remote set <URL>` to avoid storing credentials locally.
 commands:
   - name: ask
     command: pplx ask {query}
     description: Run a grounded web search query with citations.
+  - name: patents
+    command: pplx ask --patents {query}
+    description: Search global patent databases, prior art, CPC classifications, and claims.
+  - name: academic
+    command: pplx ask --academic {query}
+    description: Search academic papers across arXiv, PubMed, IEEE, and peer-reviewed journals.
+  - name: finance
+    command: pplx ask --finance {query}
+    description: Search financial markets, stock metrics, earnings conference transcripts, and SEC filings.
+  - name: social
+    command: pplx ask --social {query}
+    description: Search Reddit, Twitter/X, and community discussions for user feedback and opinions.
   - name: remote
     command: pplx remote set {url}
     description: Bind a remote Search2API endpoint to avoid storing local Perplexity credentials.
   - name: models
     command: pplx models
-    description: List available reasoning and search models on the remote or local runtime.
+    description: List available reasoning models and search verticals.
   - name: info
     command: pplx info
     description: Inspect Perplexity session, remote gateway status, and token TTL.

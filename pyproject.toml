@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "perplexity-search2api"
-version = "0.1.0"
+version = "0.2.0"
 description = "Perplexity Pro search and reasoning gateway with OpenAI-compatible API and CLI"
 readme = "README.md"
 authors = [

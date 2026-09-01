@@ -1,73 +1,78 @@
 # Practical Agent Usage Scenarios & Examples
 
-This guide provides tested invocation patterns and prompt strategies for common developer and AI agent workflows.
+This guide provides tested invocation patterns and prompt strategies for common developer, researcher, and AI agent workflows.
 
 ---
 
-## Scenario 1: Debugging Upstream Library Changes & Regressions
-When encountering a runtime error or unexpected deprecation warning from third-party packages:
+## Scenario 1: Patent & Prior Art Analysis (`--patents`)
+When investigating intellectual property, patent numbers, assignees, or prior art:
 
 ```bash
-# Query recent discussions, GitHub issues, and release notes
-pplx ask "FastAPI 0.115 Pydantic v2 migration error: 'BaseSettings' has been moved to 'pydantic-settings'"
+pplx ask --patents "CRISPR-Cas9 base editing Liu David patent numbers and CPC subclass"
 ```
 
 **Expected Result**:
-- Perplexity searches recent GitHub issues and release notes.
-- Provides exact import fix: `from pydantic_settings import BaseSettings`.
-- Supplies references to official docs.
+- Searches Google Patents, USPTO, WIPO, EPO, and PubChem Patent databases.
+- Identifies patent identifiers (e.g. `US9840699B2`, `WO2021030666A1`), claims, and assignee data.
 
 ---
 
-## Scenario 2: Deep Technical Comparison & Architecture Selection
-When deciding between technical architectures or modern frameworks:
+## Scenario 2: Academic & Scientific Research (`--academic`)
+When querying scientific literature, arXiv preprints, or medical studies:
 
 ```bash
-# Leverage Claude 3.7 Sonnet for structured technical evaluation
-pplx ask --model claude-3-7-sonnet "Compare Turbopack vs Vite in 2026 for large enterprise Next.js monorepos with benchmark numbers"
+pplx ask --academic "Mamba state space models visual representation arXiv papers"
 ```
 
 **Expected Result**:
-- Multi-query synthesis across tech blogs and benchmark reports.
-- Structured breakdown of build times, HMR latency, and plugin compatibility.
+- Queries arXiv, PubMed, Semantic Scholar, IEEE, and Nature.
+- Returns scholarly citations with direct arXiv IDs, DOI links, and author lists.
 
 ---
 
-## Scenario 3: Quick Syntax & CLI Parameter Verification
-When an agent needs to confirm an exact command-line syntax before running destructive commands:
+## Scenario 3: Financial Markets & SEC Filings (`--finance`)
+When researching ticker financials, earnings reports, or analyst forecasts:
 
 ```bash
-# Concise mode for fast fact verification
-pplx ask --mode concise "What is the exact uv command to install a tool from a local directory in editable mode?"
+pplx ask --finance "NVDA Q2 FY27 gross margins, data center revenue, and analyst price targets"
 ```
 
 **Expected Result**:
-- Direct answer: `uv tool install --editable .`
-- Immediate execution without conversational fluff.
+- Connects with Financial Modeling Prep, Fiscal.ai, Quartr transcripts, and SEC 10-Q filings.
+- Returns GAAP/Non-GAAP gross margins, guidance ranges, and analyst consensus targets.
 
 ---
 
-## Scenario 4: Investigating Recent CVEs & Security Advisories
-When auditing dependencies for newly published zero-days or vulnerabilities:
+## Scenario 4: Social & Community Feedback (`--social`)
+When gathering genuine user feedback, Reddit threads, and forum discussions:
 
 ```bash
-pplx ask "CVE-2026-XXXX latest impact, affected versions, and mitigation patch"
+pplx ask --social "FastAPI vs Litestar vs Sanic developer feedback in 2026"
 ```
 
-**Expected Result**:
-- Direct links to NVD, vendor security bulletins, and patch commit hashes.
+---
+
+## Scenario 5: High-Reasoning Code & Architecture Search
+When combining specialized models with live search:
+
+```bash
+pplx ask --model claude-3-7-sonnet "FastAPI 0.115 Pydantic v2 migration error: 'BaseSettings' moved to 'pydantic-settings'"
+```
 
 ---
 
-## Scenario 5: Scripting & Output Redirection
-When embedding `pplx` into automated scripts or CI/CD pipelines:
+## Scenario 6: OpenAI API Gateway Integration
+Using Python OpenAI SDK with search verticals:
 
-```bash
-# Save grounded research directly to a Markdown report
-pplx ask "Latest Python PEPs accepted in 2026" > /tmp/pep-report.md
+```python
+from openai import OpenAI
 
-# Verify exit status in bash scripts
-if pplx ask --mode concise "Is Redis 8 released?" | grep -i "yes"; then
-    echo "Redis 8 is out"
-fi
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="none")
+
+# Call Patents vertical with Claude 3.7
+response = client.chat.completions.create(
+    model="patents:claude-3-7-sonnet",
+    messages=[{"role": "user", "content": "Top solid-state battery patents"}],
+)
+print(response.choices[0].message.content)
 ```

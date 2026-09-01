@@ -1,7 +1,16 @@
 """
 Perplexity API 客户端 (Perplexity Ask / Copilot / Pro Client)
 - 支持异步流式 (Async Streaming) 与同步流式 (Sync Streaming) 查询
-- 实时捕获搜索过程事件 (Search Progress / Thinking / Web Results)
+- 支持多种专业垂直搜索模型与领域 (Search Verticals & Focus Domains):
+  * Web (默认全网综合搜索)
+  * Patents (https://www.perplexity.ai/patents 专利检索、IPC/CPC分类与现有技术分析)
+  * Academic (https://www.perplexity.ai/academic 学术文献、arXiv、PubMed、JSTOR、DOI期刊论文)
+  * Finance (https://www.perplexity.ai/finance 金融市场、SEC财报、高管会议纪要、华尔街分析师共识)
+  * Social (社交网络、Reddit、Twitter/X、社区讨论与观点挖掘)
+  * Health (临床医学、健康指南、医药参考)
+  * Writing / Wolfram / YouTube / Reddit 经典 Focus 模式
+- 支持复合模型名称语法 (如 patents:claude-3-7-sonnet, academic:sonar, finance:gpt-5.6)
+- 实时捕获搜索过程事件 (Search Progress / Thinking / Web Results / Citations)
 - 精准解析 Web Search 引用来源 (Sources / Citations / Web Results)
 - 兼容实时 Chunks 增量 Token 流与完整快照同步
 - 支持 Pro / Max 全系列大模型
@@ -19,6 +28,139 @@ from perplexity_auth import APP_USER_AGENT, PerplexityAuthManager
 from perplexity_config import get_remote_api_key, get_remote_url
 
 ASK_ENDPOINT = "https://www.perplexity.ai/rest/sse/perplexity_ask"
+
+# 专业搜索领域与垂直模型预设定义
+SEARCH_VERTICALS: dict[str, dict[str, Any]] = {
+    "web": {
+        "id": "web",
+        "name": "Web Search (全网搜索)",
+        "query_source": "home",
+        "sources": ["web"],
+        "search_focus": "internet",
+        "description": "实时全面索引整个互联网，适用于通用事实检索、新闻热点与综合知识问答。",
+        "url": "https://www.perplexity.ai/",
+    },
+    "patents": {
+        "id": "patents",
+        "name": "Perplexity Patents (专利检索)",
+        "query_source": "patents",
+        "sources": ["web"],
+        "search_focus": "internet",
+        "description": "深度检索全球专利文献 (Google Patents, USPTO, EPO, WIPO, PubChem Patent)，提取专利号、申请人、CPC分类、权利要求与现有技术分析。",
+        "url": "https://www.perplexity.ai/patents",
+    },
+    "academic": {
+        "id": "academic",
+        "name": "Perplexity Academic (学术文献)",
+        "query_source": "academic",
+        "sources": ["scholar"],
+        "search_focus": "internet",
+        "description": "专为学术研究打造，定向检索 arXiv、PubMed、Semantic Scholar、IEEE、Nature、ScienceDirect、JSTOR 等同行评审论文与期刊。",
+        "url": "https://www.perplexity.ai/academic",
+    },
+    "finance": {
+        "id": "finance",
+        "name": "Perplexity Finance (金融与市场)",
+        "query_source": "finance",
+        "sources": ["web"],
+        "search_focus": "internet",
+        "canonical_page_context": {
+            "page_type": "finance",
+            "data": {
+                "section_name": "market",
+                "country": "US",
+            },
+        },
+        "description": "接入机构级金融数据 (FMP, Quartr, Fiscal.ai, S&P Global, SEC Filings)，检索股票实时行情、财报数据、业绩电话会纪要与分析师目标价。",
+        "url": "https://www.perplexity.ai/finance",
+    },
+    "social": {
+        "id": "social",
+        "name": "Social & Discussions (社交与讨论)",
+        "query_source": "social",
+        "sources": ["social"],
+        "search_focus": "internet",
+        "description": "聚合社交平台、Reddit 社区、Twitter/X 与论坛真实用户讨论、使用体验与真实口碑。",
+        "url": "https://www.perplexity.ai/",
+    },
+    "health": {
+        "id": "health",
+        "name": "Health & Clinical (健康与医疗)",
+        "query_source": "health",
+        "sources": ["health"],
+        "search_focus": "internet",
+        "description": "检索临床医学文献、循证医疗指南、疾病预防与权威健康医疗参考数据。",
+        "url": "https://www.perplexity.ai/",
+    },
+    "writing": {
+        "id": "writing",
+        "name": "Writing & Generation (纯文本生成)",
+        "query_source": "home",
+        "sources": [],
+        "search_focus": "writing",
+        "description": "直接调用大模型进行创作、代码生成或文本改写，不触发任何联网搜索。",
+        "url": "https://www.perplexity.ai/",
+    },
+    "wolfram": {
+        "id": "wolfram",
+        "name": "Wolfram Alpha (计算与数理)",
+        "query_source": "home",
+        "sources": [],
+        "search_focus": "wolfram",
+        "description": "利用 Wolfram Alpha 计算引擎进行高精数理计算、方程求解、物理公式与结构化科学数据分析。",
+        "url": "https://www.perplexity.ai/",
+    },
+    "youtube": {
+        "id": "youtube",
+        "name": "YouTube Search (视频搜索)",
+        "query_source": "home",
+        "sources": [],
+        "search_focus": "youtube",
+        "description": "针对 YouTube 视频、播客、字幕转录文稿及时间戳进行精准定向检索与内容提炼。",
+        "url": "https://www.perplexity.ai/",
+    },
+    "reddit": {
+        "id": "reddit",
+        "name": "Reddit Search (社区搜索)",
+        "query_source": "home",
+        "sources": [],
+        "search_focus": "reddit",
+        "description": "专一检索 Reddit 社区帖子、热门 Subreddit 讨论与深度评论互动。",
+        "url": "https://www.perplexity.ai/",
+    },
+}
+
+# 垂直领域别名字典
+VERTICAL_ALIASES: dict[str, str] = {
+    "web": "web",
+    "internet": "web",
+    "default": "web",
+    "home": "web",
+    "patents": "patents",
+    "patent": "patents",
+    "academic": "academic",
+    "scholar": "academic",
+    "paper": "academic",
+    "papers": "academic",
+    "finance": "finance",
+    "financial": "finance",
+    "stock": "finance",
+    "stocks": "finance",
+    "market": "finance",
+    "markets": "finance",
+    "social": "social",
+    "discussions": "social",
+    "forum": "social",
+    "health": "health",
+    "medical": "health",
+    "medicine": "health",
+    "writing": "writing",
+    "wolfram": "wolfram",
+    "math": "wolfram",
+    "youtube": "youtube",
+    "video": "youtube",
+    "reddit": "reddit",
+}
 
 # 用户友好模型名称与 Perplexity 后端 internal key 映射表
 MODEL_ALIASES: dict[str, str] = {
@@ -89,7 +231,7 @@ MODEL_ALIASES: dict[str, str] = {
 
 
 def resolve_model_name(model_name: str | None) -> str:
-    """将输入的模型名称解析为 Perplexity 后端合法的 model_preference key"""
+    """将用户输入的模型名称/别名转换为 Perplexity 后端识别的模型参数"""
     if not model_name:
         return "experimental"
     norm = model_name.strip().lower()
@@ -98,6 +240,77 @@ def resolve_model_name(model_name: str | None) -> str:
     # 支持带模式后缀的模型名，如 claude-3-7-sonnet-copilot, gpt-5.6-deep
     clean_norm = re.sub(r"-(copilot|deep|concise|fast)$", "", norm)
     return MODEL_ALIASES.get(clean_norm, norm)
+
+
+def resolve_vertical_config(
+    vertical: str | None = None,
+    sources: list[str] | None = None,
+    search_focus: str | None = None,
+    query_source: str | None = None,
+    canonical_page_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """解析垂直搜索领域配置 (query_source, sources, search_focus, canonical_page_context)"""
+    norm_v = (vertical or "").strip().lower()
+    canonical_id = VERTICAL_ALIASES.get(norm_v, norm_v) if norm_v else None
+
+    preset = SEARCH_VERTICALS.get(canonical_id or "web", SEARCH_VERTICALS["web"])
+
+    final_query_source = query_source or preset.get("query_source", "home")
+    final_search_focus = search_focus or preset.get("search_focus", "internet")
+    final_sources = (
+        sources if sources is not None else list(preset.get("sources", ["web"]))
+    )
+    final_context = (
+        canonical_page_context
+        if canonical_page_context is not None
+        else preset.get("canonical_page_context")
+    )
+
+    return {
+        "vertical": canonical_id or "web",
+        "query_source": final_query_source,
+        "search_focus": final_search_focus,
+        "sources": final_sources,
+        "canonical_page_context": final_context,
+        "description": preset.get("description", ""),
+        "url": preset.get("url", "https://www.perplexity.ai/"),
+    }
+
+
+def parse_model_and_vertical(
+    model: str | None,
+    explicit_vertical: str | None = None,
+) -> tuple[str, str | None]:
+    """
+    解析模型名称与垂直搜索模式。
+    支持显式参数以及复合语法:
+    - "patents:claude-3-7-sonnet" -> ("claude-3-7-sonnet", "patents")
+    - "academic/sonar" -> ("sonar", "academic")
+    - "finance:gpt-5.6" -> ("gpt-5.6", "finance")
+    - "patents" -> ("experimental", "patents")
+    - "claude-3-7-sonnet", explicit_vertical="academic" -> ("claude-3-7-sonnet", "academic")
+    """
+    if explicit_vertical and explicit_vertical.strip():
+        norm_v = explicit_vertical.strip().lower()
+        return (model or "experimental"), VERTICAL_ALIASES.get(norm_v, norm_v)
+
+    clean_model = (model or "").strip()
+    if not clean_model:
+        return "experimental", None
+
+    # 如果整个模型名称就是一个垂直领域名称 (如 "patents", "academic", "finance")
+    if clean_model.lower() in VERTICAL_ALIASES:
+        return "experimental", VERTICAL_ALIASES[clean_model.lower()]
+
+    # 检查复合前缀语法: "patents:claude-3-7-sonnet", "academic/sonar", "finance:gpt-5.6"
+    for sep in (":", "/"):
+        if sep in clean_model:
+            prefix, rest = clean_model.split(sep, 1)
+            prefix_norm = prefix.strip().lower()
+            if prefix_norm in VERTICAL_ALIASES and rest.strip():
+                return rest.strip(), VERTICAL_ALIASES[prefix_norm]
+
+    return clean_model, None
 
 
 class RemotePerplexityClient:
@@ -148,13 +361,15 @@ class RemotePerplexityClient:
                     return resp.json()
             except Exception:
                 pass
-            resp_root = client.get(self._get_url("/"), headers=headers)
-            if resp_root.status_code == 200:
-                return resp_root.json()
-            return {
-                "status": "ok" if resp_root.status_code < 400 else "error",
-                "code": resp_root.status_code,
-            }
+            try:
+                resp_root = client.get(self._get_url("/"), headers=headers)
+                return {
+                    "status": "ok" if resp_root.status_code < 400 else "error",
+                    "code": resp_root.status_code,
+                }
+            except Exception:
+                pass
+            return {"status": "unreachable"}
 
     def get_models(self, timeout: float = 8.0) -> list[str]:
         """获取远端服务支持的模型列表"""
@@ -167,6 +382,19 @@ class RemotePerplexityClient:
                 if isinstance(data, dict) and "data" in data:
                     return [m["id"] for m in data["data"] if "id" in m]
             return []
+
+    def get_verticals(self, timeout: float = 8.0) -> dict[str, Any]:
+        """获取远端服务支持的搜索垂直领域列表 (/verticals)"""
+        headers = self._build_headers()
+        req_timeout = httpx.Timeout(timeout, connect=5.0)
+        with httpx.Client(timeout=req_timeout) as client:
+            try:
+                resp = client.get(self._get_url("/verticals"), headers=headers)
+                if resp.status_code == 200:
+                    return resp.json()
+            except Exception:
+                pass
+            return {"data": list(SEARCH_VERTICALS.values()), "aliases": VERTICAL_ALIASES}
 
     def get_auth_info(self, timeout: float = 8.0) -> dict[str, Any]:
         """获取远端服务登录与凭证状态 (/auth/info)"""
@@ -199,18 +427,33 @@ class RemotePerplexityClient:
         mode: str = "concise",
         timeout: float | None = None,
         append_citations: bool = True,
+        vertical: str | None = None,
+        query_source: str | None = None,
+        search_focus: str | None = None,
+        sources: list[str] | None = None,
     ) -> Generator[dict[str, Any], None, None]:
         """同步流式调用远端 OpenAI 兼容端点"""
         req_timeout = httpx.Timeout(timeout or self.timeout, connect=10.0)
         url = self._get_url("/v1/chat/completions")
         headers = self._build_headers()
-        payload = {
-            "model": model,
+
+        actual_model, parsed_vertical = parse_model_and_vertical(model, vertical)
+
+        payload: dict[str, Any] = {
+            "model": actual_model,
             "messages": [{"role": "user", "content": query}],
             "stream": True,
             "mode": mode,
             "append_citations": append_citations,
         }
+        if parsed_vertical:
+            payload["vertical"] = parsed_vertical
+        if query_source:
+            payload["query_source"] = query_source
+        if search_focus:
+            payload["search_focus"] = search_focus
+        if sources is not None:
+            payload["sources"] = sources
 
         accumulated_text = ""
         accumulated_reasoning = ""
@@ -256,33 +499,48 @@ class RemotePerplexityClient:
                         yield {
                             "type": "delta",
                             "delta": delta_content,
-                            "reasoning_delta": delta_reasoning,
+                            "delta_reasoning": delta_reasoning,
                             "answer": accumulated_text,
-                            "reasoning_content": accumulated_reasoning,
+                            "reasoning": accumulated_reasoning,
                             "sources": list(seen_sources.values()),
                             "display_model": model,
                             "raw_event": event,
                         }
 
-    async def ask_async_stream(
+    async def ask_stream_async(
         self,
         query: str,
         model: str = "experimental",
         mode: str = "concise",
         timeout: float | None = None,
         append_citations: bool = True,
+        vertical: str | None = None,
+        query_source: str | None = None,
+        search_focus: str | None = None,
+        sources: list[str] | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """异步流式调用远端 OpenAI 兼容端点"""
         req_timeout = httpx.Timeout(timeout or self.timeout, connect=10.0)
         url = self._get_url("/v1/chat/completions")
         headers = self._build_headers()
-        payload = {
-            "model": model,
+
+        actual_model, parsed_vertical = parse_model_and_vertical(model, vertical)
+
+        payload: dict[str, Any] = {
+            "model": actual_model,
             "messages": [{"role": "user", "content": query}],
             "stream": True,
             "mode": mode,
             "append_citations": append_citations,
         }
+        if parsed_vertical:
+            payload["vertical"] = parsed_vertical
+        if query_source:
+            payload["query_source"] = query_source
+        if search_focus:
+            payload["search_focus"] = search_focus
+        if sources is not None:
+            payload["sources"] = sources
 
         accumulated_text = ""
         accumulated_reasoning = ""
@@ -328,9 +586,9 @@ class RemotePerplexityClient:
                         yield {
                             "type": "delta",
                             "delta": delta_content,
-                            "reasoning_delta": delta_reasoning,
+                            "delta_reasoning": delta_reasoning,
                             "answer": accumulated_text,
-                            "reasoning_content": accumulated_reasoning,
+                            "reasoning": accumulated_reasoning,
                             "sources": list(seen_sources.values()),
                             "display_model": model,
                             "raw_event": event,
@@ -342,17 +600,33 @@ class RemotePerplexityClient:
         model: str = "experimental",
         mode: str = "concise",
         timeout: float | None = None,
+        vertical: str | None = None,
+        query_source: str | None = None,
+        search_focus: str | None = None,
+        sources: list[str] | None = None,
     ) -> dict[str, Any]:
         """同步非流式调用远端端点"""
         req_timeout = httpx.Timeout(timeout or self.timeout, connect=10.0)
         url = self._get_url("/v1/chat/completions")
         headers = self._build_headers()
-        payload = {
-            "model": model,
+
+        actual_model, parsed_vertical = parse_model_and_vertical(model, vertical)
+
+        payload: dict[str, Any] = {
+            "model": actual_model,
             "messages": [{"role": "user", "content": query}],
             "stream": False,
             "mode": mode,
         }
+        if parsed_vertical:
+            payload["vertical"] = parsed_vertical
+        if query_source:
+            payload["query_source"] = query_source
+        if search_focus:
+            payload["search_focus"] = search_focus
+        if sources is not None:
+            payload["sources"] = sources
+
         with httpx.Client(timeout=req_timeout) as client:
             resp = client.post(url, headers=headers, json=payload)
             if resp.status_code != 200:
@@ -360,12 +634,11 @@ class RemotePerplexityClient:
                 raise RuntimeError(f"远端 API 请求失败 ({resp.status_code}): {err_msg}")
             data = resp.json()
             choices = data.get("choices", [])
-            content = choices[0]["message"]["content"] if choices else ""
-            sources = data.get("citations", [])
+            answer = choices[0]["message"]["content"] if choices else ""
             return {
                 "query": query,
-                "answer": content,
-                "sources": sources,
+                "answer": answer,
+                "sources": data.get("citations", []),
                 "model": data.get("model", model),
                 "raw_event": data,
             }
@@ -376,17 +649,33 @@ class RemotePerplexityClient:
         model: str = "experimental",
         mode: str = "concise",
         timeout: float | None = None,
+        vertical: str | None = None,
+        query_source: str | None = None,
+        search_focus: str | None = None,
+        sources: list[str] | None = None,
     ) -> dict[str, Any]:
         """异步非流式调用远端端点"""
         req_timeout = httpx.Timeout(timeout or self.timeout, connect=10.0)
         url = self._get_url("/v1/chat/completions")
         headers = self._build_headers()
-        payload = {
-            "model": model,
+
+        actual_model, parsed_vertical = parse_model_and_vertical(model, vertical)
+
+        payload: dict[str, Any] = {
+            "model": actual_model,
             "messages": [{"role": "user", "content": query}],
             "stream": False,
             "mode": mode,
         }
+        if parsed_vertical:
+            payload["vertical"] = parsed_vertical
+        if query_source:
+            payload["query_source"] = query_source
+        if search_focus:
+            payload["search_focus"] = search_focus
+        if sources is not None:
+            payload["sources"] = sources
+
         async with httpx.AsyncClient(timeout=req_timeout) as client:
             resp = await client.post(url, headers=headers, json=payload)
             if resp.status_code != 200:
@@ -394,19 +683,22 @@ class RemotePerplexityClient:
                 raise RuntimeError(f"远端 API 请求失败 ({resp.status_code}): {err_msg}")
             data = resp.json()
             choices = data.get("choices", [])
-            content = choices[0]["message"]["content"] if choices else ""
-            sources = data.get("citations", [])
+            answer = choices[0]["message"]["content"] if choices else ""
             return {
                 "query": query,
-                "answer": content,
-                "sources": sources,
+                "answer": answer,
+                "sources": data.get("citations", []),
                 "model": data.get("model", model),
                 "raw_event": data,
             }
 
 
 class PerplexityClient:
-    """Perplexity Search & Ask 客户端 (支持同步与原生异步流式处理)"""
+    """
+    Perplexity 核心统一客户端 (支持透明切换 本地直接请求 / 远端网关请求)
+    - 自动根据环境变量或本地配置判定是否启用 Remote 模式
+    - 完整支持所有垂直搜索领域与模型 (Patents, Academic, Finance, Social, Health, Web 等)
+    """
 
     def __init__(
         self,
@@ -414,22 +706,32 @@ class PerplexityClient:
         remote_url: str | None = None,
         api_key: str | None = None,
     ):
-        resolved_remote = get_remote_url(remote_url)
-        resolved_api_key = get_remote_api_key(api_key)
-
-        if remote_url is not None or (auth_manager is None and resolved_remote):
-            self.is_remote = True
-            self.remote_client = RemotePerplexityClient(
-                remote_url=resolved_remote or remote_url or "",
-                api_key=resolved_api_key,
-            )
-            self.auth_manager = auth_manager or PerplexityAuthManager()
-        else:
+        if auth_manager is not None or remote_url == "":
             self.is_remote = False
             self.remote_client = None
             self.auth_manager = auth_manager or PerplexityAuthManager()
+            return
 
-    def _build_headers(self, request_id: str | None = None) -> dict[str, str]:
+        target_remote_url = remote_url or get_remote_url()
+        target_api_key = api_key or get_remote_api_key()
+
+        if target_remote_url:
+            self.is_remote = True
+            self.remote_client = RemotePerplexityClient(
+                remote_url=target_remote_url,
+                api_key=target_api_key,
+            )
+            self.auth_manager = None
+        else:
+            self.is_remote = False
+            self.remote_client = None
+            self.auth_manager = PerplexityAuthManager()
+
+    def _build_headers(
+        self,
+        request_id: str | None = None,
+        vertical: str | None = None,
+    ) -> dict[str, str]:
         token = self.auth_manager.get_valid_token()
         req_id = request_id or str(uuid.uuid4())
 
@@ -438,6 +740,10 @@ class PerplexityClient:
         if cf_clearance:
             cookies.append(f"cf_clearance={cf_clearance}")
 
+        referer_url = "https://www.perplexity.ai/"
+        if vertical and vertical != "web":
+            referer_url = f"https://www.perplexity.ai/{vertical}"
+
         return {
             "User-Agent": APP_USER_AGENT,
             "X-App-ApiClient": "default",
@@ -445,7 +751,7 @@ class PerplexityClient:
             "X-Perplexity-Request-Reason": "submit",
             "X-Request-ID": req_id,
             "Origin": "https://www.perplexity.ai",
-            "Referer": "https://www.perplexity.ai/",
+            "Referer": referer_url,
             "Content-Type": "application/json",
             "Accept": "text/event-stream",
             "Cookie": "; ".join(cookies),
@@ -456,24 +762,82 @@ class PerplexityClient:
         query: str,
         model: str = "experimental",
         mode: str = "concise",
-        search_focus: str = "internet",
+        search_focus: str | None = None,
         sources: list[str] | None = None,
+        vertical: str | None = None,
+        query_source: str | None = None,
+        canonical_page_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        resolved_model = resolve_model_name(model)
-        sources_list = sources or ["web"]
+        actual_model, parsed_vertical = parse_model_and_vertical(model, vertical)
+        resolved_model = resolve_model_name(actual_model)
+
+        vert_cfg = resolve_vertical_config(
+            vertical=parsed_vertical,
+            sources=sources,
+            search_focus=search_focus,
+            query_source=query_source,
+            canonical_page_context=canonical_page_context,
+        )
 
         params: dict[str, Any] = {
             "query_str": query,
-            "search_focus": search_focus,
+            "search_focus": vert_cfg["search_focus"],
             "mode": mode,
             "model_preference": resolved_model,
-            "sources": sources_list,
+            "sources": vert_cfg["sources"],
+            "query_source": vert_cfg["query_source"],
+            "prompt_source": "user",
+            "is_related_query": False,
+            "is_sponsored": False,
+            "is_incognito": False,
+            "use_schematized_api": True,
+            "send_back_text_in_streaming_api": False,
+            "supported_block_use_cases": [
+                "answer_modes",
+                "media_items",
+                "inline_entity_cards",
+                "place_widgets",
+                "finance_widgets",
+                "sports_widgets",
+                "news_widgets",
+                "shopping_widgets",
+                "jobs_widgets",
+                "search_result_widgets",
+                "inline_images",
+                "inline_assets",
+                "placeholder_cards",
+                "diff_blocks",
+                "entity_group_v2",
+                "refinement_filters",
+                "canvas_mode",
+                "maps_preview",
+                "answer_tabs",
+                "price_comparison_widgets",
+                "preserve_latex",
+                "generic_onboarding_widgets",
+                "in_context_suggestions",
+                "pending_followups",
+                "inline_claims",
+                "unified_assets",
+                "workflow_steps",
+                "workflow_widgets",
+                "navigation_results",
+                "background_agents",
+            ],
+            "skip_search_enabled": True,
+            "source": "default",
+            "always_search_override": False,
+            "override_no_search": False,
             "should_ask_for_mcp_tool_confirmation": False,
             "supports_tool_approval_modal": False,
             "force_enable_browser_agent": False,
             "is_local_browser_available": False,
             "is_local_browser_allowed": False,
+            "version": "2.18",
         }
+
+        if vert_cfg.get("canonical_page_context"):
+            params["canonical_page_context"] = vert_cfg["canonical_page_context"]
 
         return {
             "query_str": query,
@@ -486,6 +850,11 @@ class PerplexityClient:
         model: str = "experimental",
         mode: str = "concise",
         timeout: float = 60.0,
+        vertical: str | None = None,
+        query_source: str | None = None,
+        search_focus: str | None = None,
+        sources: list[str] | None = None,
+        canonical_page_context: dict[str, Any] | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """
         原生异步流式请求 Perplexity API，实时产出：
@@ -493,8 +862,32 @@ class PerplexityClient:
         2. 增量文本 (type="delta")
         3. 完整文本快照与引用源 (sources)
         """
-        headers = self._build_headers()
-        payload = self._build_payload(query, model=model, mode=mode)
+        if self.is_remote and self.remote_client:
+            async for item in self.remote_client.ask_stream_async(
+                query,
+                model=model,
+                mode=mode,
+                timeout=timeout,
+                vertical=vertical,
+                query_source=query_source,
+                search_focus=search_focus,
+                sources=sources,
+            ):
+                yield item
+            return
+
+        actual_model, parsed_vertical = parse_model_and_vertical(model, vertical)
+        headers = self._build_headers(vertical=parsed_vertical)
+        payload = self._build_payload(
+            query,
+            model=actual_model,
+            mode=mode,
+            search_focus=search_focus,
+            sources=sources,
+            vertical=parsed_vertical,
+            query_source=query_source,
+            canonical_page_context=canonical_page_context,
+        )
         resolved_model = payload["params"]["model_preference"]
 
         async with httpx.AsyncClient(timeout=timeout) as client:
@@ -504,9 +897,17 @@ class PerplexityClient:
                 if response.status_code == 401:
                     # Token 过期，强制刷新并重试一次
                     self.auth_manager.refresh(force=True)
-                    headers = self._build_headers()
+                    headers = self._build_headers(vertical=parsed_vertical)
                     async for item in self.ask_async_stream(
-                        query, model=model, mode=mode, timeout=timeout
+                        query,
+                        model=model,
+                        mode=mode,
+                        timeout=timeout,
+                        vertical=vertical,
+                        query_source=query_source,
+                        search_focus=search_focus,
+                        sources=sources,
+                        canonical_page_context=canonical_page_context,
                     ):
                         yield item
                     return
@@ -547,12 +948,12 @@ class PerplexityClient:
                         blocks = event.get("blocks", [])
 
                         for b in blocks:
-                            usage = b.get("intended_usage", "")
+                            usage = b.get("intended_usage") or b.get("intended_use_case")
 
-                            # 1. 文本内容流式解析 (ask_text, ask_text_*_markdown 等)
-                            if usage.startswith("ask_text") or "markdown_block" in b:
-                                mb = b.get("markdown_block", {})
-                                ans = mb.get("answer", "")
+                            # 1. 结构化 Markdown 回答增量解析
+                            if usage in ("ask_text", "answer") or "markdown_block" in b:
+                                mb = b.get("markdown_block") or b
+                                ans = mb.get("answer") or mb.get("markdown") or b.get("markdown") or b.get("answer")
                                 chunks = mb.get("chunks", [])
 
                                 if ans:
@@ -573,7 +974,9 @@ class PerplexityClient:
                             ):
                                 raw_sources = []
                                 if "web_result_block" in b:
-                                    raw_sources.extend(b["web_result_block"].get("web_results", []))
+                                    raw_sources.extend(
+                                        b["web_result_block"].get("web_results", [])
+                                    )
                                 if "sources_block" in b:
                                     raw_sources.extend(b["sources_block"].get("sources", []))
 
@@ -584,34 +987,48 @@ class PerplexityClient:
                                             "name": s.get("name") or s.get("title") or "网页",
                                             "url": url,
                                             "snippet": s.get("snippet", ""),
-                                            "timestamp": s.get("timestamp", ""),
                                         }
-                                        has_new_sources = True
 
-                        current_sources = list(seen_sources.values())
+                        # 兼容非 blocks 根节点的 web_results 字段
+                        if "web_results" in event and isinstance(event["web_results"], list):
+                            for s in event["web_results"]:
+                                url = s.get("url")
+                                if url and url not in seen_sources:
+                                    seen_sources[url] = {
+                                        "name": s.get("name") or s.get("title") or "网页",
+                                        "url": url,
+                                        "snippet": s.get("snippet", ""),
+                                    }
 
-                        # 如果抓取到了新的搜索结果，但还没有正文文本，推送搜索进度事件
-                        if has_new_sources and not delta and not accumulated_text:
-                            if len(current_sources) > last_sources_count:
-                                last_sources_count = len(current_sources)
-                                yield {
-                                    "type": "progress",
-                                    "progress_type": "search",
-                                    "sources_count": len(current_sources),
-                                    "sources": current_sources,
-                                    "display_model": display_model,
-                                }
+                        if len(seen_sources) > last_sources_count:
+                            has_new_sources = True
+                            last_sources_count = len(seen_sources)
 
-                        # 如果产生了文本增量
-                        if delta or accumulated_text:
+                        # 如果当前事件产出了增量文本或新引用源，向上游派发
+                        if delta or has_new_sources:
                             yield {
                                 "type": "delta",
                                 "delta": delta,
                                 "answer": accumulated_text,
-                                "sources": current_sources,
+                                "sources": list(seen_sources.values()),
                                 "display_model": display_model,
+                                "vertical": parsed_vertical or "web",
                                 "raw_event": event,
                             }
+
+                        # 兼容旧版本纯 text 全量文本覆盖流
+                        if "text" in event and not delta and event["text"]:
+                            raw_t = event["text"]
+                            if isinstance(raw_t, str) and raw_t != accumulated_text:
+                                yield {
+                                    "type": "snapshot",
+                                    "delta": "",
+                                    "answer": raw_t,
+                                    "sources": list(seen_sources.values()),
+                                    "display_model": display_model,
+                                    "vertical": parsed_vertical or "web",
+                                    "raw_event": event,
+                                }
 
     def ask_stream(
         self,
@@ -619,23 +1036,56 @@ class PerplexityClient:
         model: str = "experimental",
         mode: str = "concise",
         timeout: float = 60.0,
+        vertical: str | None = None,
+        query_source: str | None = None,
+        search_focus: str | None = None,
+        sources: list[str] | None = None,
+        canonical_page_context: dict[str, Any] | None = None,
     ) -> Generator[dict[str, Any], None, None]:
-        """
-        同步流式请求 Perplexity API (兼容旧接口)
-        """
+        """同步流式请求 Perplexity API"""
         if self.is_remote and self.remote_client:
-            yield from self.remote_client.ask_stream(query, model=model, mode=mode, timeout=timeout)
+            yield from self.remote_client.ask_stream(
+                query,
+                model=model,
+                mode=mode,
+                timeout=timeout,
+                vertical=vertical,
+                query_source=query_source,
+                search_focus=search_focus,
+                sources=sources,
+            )
             return
 
-        headers = self._build_headers()
-        payload = self._build_payload(query, model=model, mode=mode)
+        actual_model, parsed_vertical = parse_model_and_vertical(model, vertical)
+        headers = self._build_headers(vertical=parsed_vertical)
+        payload = self._build_payload(
+            query,
+            model=actual_model,
+            mode=mode,
+            search_focus=search_focus,
+            sources=sources,
+            vertical=parsed_vertical,
+            query_source=query_source,
+            canonical_page_context=canonical_page_context,
+        )
         resolved_model = payload["params"]["model_preference"]
 
         with httpx.Client(timeout=timeout) as client:
             with client.stream("POST", ASK_ENDPOINT, headers=headers, json=payload) as response:
                 if response.status_code == 401:
                     self.auth_manager.refresh(force=True)
-                    yield from self.ask_stream(query, model=model, mode=mode, timeout=timeout)
+                    headers = self._build_headers(vertical=parsed_vertical)
+                    yield from self.ask_stream(
+                        query,
+                        model=model,
+                        mode=mode,
+                        timeout=timeout,
+                        vertical=vertical,
+                        query_source=query_source,
+                        search_focus=search_focus,
+                        sources=sources,
+                        canonical_page_context=canonical_page_context,
+                    )
                     return
 
                 if response.status_code != 200:
@@ -647,76 +1097,95 @@ class PerplexityClient:
                 accumulated_text = ""
                 seen_sources: dict[str, dict[str, Any]] = {}
                 display_model = resolved_model
+                last_sources_count = 0
 
                 for line in response.iter_lines():
-                    if not line or not line.startswith("data: "):
+                    if not line:
                         continue
-                    data_str = line[6:].strip()
-                    if not data_str:
-                        continue
-                    try:
-                        event = json.loads(data_str)
-                    except Exception:
-                        continue
+                    if line.startswith("data: "):
+                        data_str = line[6:].strip()
+                        if not data_str:
+                            continue
+                        try:
+                            event = json.loads(data_str)
+                        except Exception:
+                            continue
 
-                    if event.get("error_code"):
-                        msg = event.get("error_message") or event.get("error_code")
-                        raise RuntimeError(f"Perplexity Stream 错误: {msg}")
+                        if event.get("error_code"):
+                            msg = event.get("error_message") or event.get("error_code")
+                            raise RuntimeError(f"Perplexity Stream 错误: {msg}")
 
-                    if event.get("display_model"):
-                        display_model = event["display_model"]
+                        if event.get("display_model"):
+                            display_model = event["display_model"]
 
-                    delta = ""
-                    blocks = event.get("blocks", [])
-                    for b in blocks:
-                        usage = b.get("intended_usage", "")
+                        delta = ""
+                        has_new_sources = False
+                        blocks = event.get("blocks", [])
 
-                        if usage.startswith("ask_text") or "markdown_block" in b:
-                            mb = b.get("markdown_block", {})
-                            ans = mb.get("answer", "")
-                            chunks = mb.get("chunks", [])
+                        for b in blocks:
+                            usage = b.get("intended_usage") or b.get("intended_use_case")
 
-                            if ans:
-                                if len(ans) > len(accumulated_text):
-                                    delta = ans[len(accumulated_text) :]
-                                    accumulated_text = ans
-                            elif chunks:
-                                d = "".join(chunks)
-                                if d:
-                                    delta = d
-                                    accumulated_text += d
+                            if usage in ("ask_text", "answer") or "markdown_block" in b:
+                                mb = b.get("markdown_block") or b
+                                ans = mb.get("answer") or mb.get("markdown") or b.get("markdown") or b.get("answer")
+                                chunks = mb.get("chunks", [])
 
-                        if (
-                            usage in ("sources", "web_results")
-                            or "web_result_block" in b
-                            or "sources_block" in b
-                        ):
-                            raw_sources = []
-                            if "web_result_block" in b:
-                                raw_sources.extend(b["web_result_block"].get("web_results", []))
-                            if "sources_block" in b:
-                                raw_sources.extend(b["sources_block"].get("sources", []))
+                                if ans:
+                                    if len(ans) > len(accumulated_text):
+                                        delta = ans[len(accumulated_text) :]
+                                        accumulated_text = ans
+                                elif chunks:
+                                    d = "".join(chunks)
+                                    if d:
+                                        delta = d
+                                        accumulated_text += d
 
-                            for s in raw_sources:
+                            if (
+                                usage in ("sources", "web_results")
+                                or "web_result_block" in b
+                                or "sources_block" in b
+                            ):
+                                raw_sources = []
+                                if "web_result_block" in b:
+                                    raw_sources.extend(
+                                        b["web_result_block"].get("web_results", [])
+                                    )
+                                if "sources_block" in b:
+                                    raw_sources.extend(b["sources_block"].get("sources", []))
+
+                                for s in raw_sources:
+                                    url = s.get("url")
+                                    if url and url not in seen_sources:
+                                        seen_sources[url] = {
+                                            "name": s.get("name") or s.get("title") or "网页",
+                                            "url": url,
+                                            "snippet": s.get("snippet", ""),
+                                        }
+
+                        if "web_results" in event and isinstance(event["web_results"], list):
+                            for s in event["web_results"]:
                                 url = s.get("url")
                                 if url and url not in seen_sources:
                                     seen_sources[url] = {
                                         "name": s.get("name") or s.get("title") or "网页",
                                         "url": url,
                                         "snippet": s.get("snippet", ""),
-                                        "timestamp": s.get("timestamp", ""),
                                     }
 
-                    yield {
-                        "type": "delta",
-                        "delta": delta,
-                        "answer": accumulated_text,
-                        "sources": list(seen_sources.values()),
-                        "display_model": display_model,
-                        "raw_event": event,
-                    }
+                        if len(seen_sources) > last_sources_count:
+                            has_new_sources = True
+                            last_sources_count = len(seen_sources)
 
-    ask_stream_async = ask_async_stream
+                        if delta or has_new_sources:
+                            yield {
+                                "type": "delta",
+                                "delta": delta,
+                                "answer": accumulated_text,
+                                "sources": list(seen_sources.values()),
+                                "display_model": display_model,
+                                "vertical": parsed_vertical or "web",
+                                "raw_event": event,
+                            }
 
     async def ask_async(
         self,
@@ -724,25 +1193,45 @@ class PerplexityClient:
         model: str = "experimental",
         mode: str = "concise",
         timeout: float = 60.0,
+        vertical: str | None = None,
+        query_source: str | None = None,
+        search_focus: str | None = None,
+        sources: list[str] | None = None,
+        canonical_page_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """
-        异步非流式请求封装
-        """
-        final_answer = ""
-        sources = []
+        """异步非流式请求封装"""
         if self.is_remote and self.remote_client:
             return await self.remote_client.ask_async(
-                query, model=model, mode=mode, timeout=timeout
+                query,
+                model=model,
+                mode=mode,
+                timeout=timeout,
+                vertical=vertical,
+                query_source=query_source,
+                search_focus=search_focus,
+                sources=sources,
             )
 
+        final_answer = ""
+        sources_list: list[dict[str, Any]] = []
         display_model = model
         raw_event = {}
 
-        async for chunk in self.ask_async_stream(query, model=model, mode=mode, timeout=timeout):
+        async for chunk in self.ask_async_stream(
+            query,
+            model=model,
+            mode=mode,
+            timeout=timeout,
+            vertical=vertical,
+            query_source=query_source,
+            search_focus=search_focus,
+            sources=sources,
+            canonical_page_context=canonical_page_context,
+        ):
             if chunk.get("answer"):
                 final_answer = chunk["answer"]
             if chunk.get("sources"):
-                sources = chunk["sources"]
+                sources_list = chunk["sources"]
             if chunk.get("display_model"):
                 display_model = chunk["display_model"]
             raw_event = chunk.get("raw_event", {})
@@ -750,8 +1239,9 @@ class PerplexityClient:
         return {
             "query": query,
             "answer": final_answer,
-            "sources": sources,
+            "sources": sources_list,
             "model": display_model,
+            "vertical": vertical or "web",
             "raw_event": raw_event,
         }
 
@@ -761,23 +1251,45 @@ class PerplexityClient:
         model: str = "experimental",
         mode: str = "concise",
         timeout: float = 60.0,
+        vertical: str | None = None,
+        query_source: str | None = None,
+        search_focus: str | None = None,
+        sources: list[str] | None = None,
+        canonical_page_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """
-        非流式请求封装
-        """
+        """同步非流式完整回答提取"""
         final_answer = ""
-        sources = []
+        sources_list: list[dict[str, Any]] = []
         if self.is_remote and self.remote_client:
-            return self.remote_client.ask(query, model=model, mode=mode, timeout=timeout)
+            return self.remote_client.ask(
+                query,
+                model=model,
+                mode=mode,
+                timeout=timeout,
+                vertical=vertical,
+                query_source=query_source,
+                search_focus=search_focus,
+                sources=sources,
+            )
 
         display_model = model
         raw_event = {}
 
-        for chunk in self.ask_stream(query, model=model, mode=mode, timeout=timeout):
+        for chunk in self.ask_stream(
+            query,
+            model=model,
+            mode=mode,
+            timeout=timeout,
+            vertical=vertical,
+            query_source=query_source,
+            search_focus=search_focus,
+            sources=sources,
+            canonical_page_context=canonical_page_context,
+        ):
             if chunk.get("answer"):
                 final_answer = chunk["answer"]
             if chunk.get("sources"):
-                sources = chunk["sources"]
+                sources_list = chunk["sources"]
             if chunk.get("display_model"):
                 display_model = chunk["display_model"]
             raw_event = chunk.get("raw_event", {})
@@ -785,7 +1297,8 @@ class PerplexityClient:
         return {
             "query": query,
             "answer": final_answer,
-            "sources": sources,
+            "sources": sources_list,
             "model": display_model,
+            "vertical": vertical or "web",
             "raw_event": raw_event,
         }

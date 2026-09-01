@@ -49,11 +49,26 @@ When an AI agent needs to perform grounded web searches or deep research:
    ```bash
    pplx ask "<query>"
    ```
-3. **Execute High-Reasoning Search**:
+3. **Execute Specialized Vertical Search**:
    ```bash
-   pplx ask --model claude-3-7-sonnet "<query>"
+   # Patent & Prior Art Search (https://www.perplexity.ai/patents)
+   pplx ask --patents "<patent / invention / prior art query>"
+
+   # Academic Literature & arXiv/PubMed (https://www.perplexity.ai/academic)
+   pplx ask --academic "<paper / research / theorem query>"
+
+   # Financial Markets, SEC Filings & Tickers (https://www.perplexity.ai/finance)
+   pplx ask --finance "<stock / earnings / SEC filings query>"
+
+   # Community Discussions & Social Opinions
+   pplx ask --social "<developer feedback / Reddit opinions query>"
    ```
-4. **Handle Token Expiry**:
+4. **Execute High-Reasoning Search with Specialized Models**:
+   ```bash
+   pplx ask --patents --model claude-3-7-sonnet "<query>"
+   pplx ask --academic --model sonar-pro "<query>"
+   ```
+5. **Handle Token Expiry**:
    If an authentication failure occurs, trigger:
    ```bash
    pplx refresh

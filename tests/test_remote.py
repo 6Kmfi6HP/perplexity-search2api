@@ -50,6 +50,7 @@ def test_dotenv_config_loading(monkeypatch):
             f.write("PERPLEXITY_API_KEY=env-secret-key\n")
 
         monkeypatch.setenv("PERPLEXITY_ENV_PATH", str(env_file))
+        monkeypatch.setenv("PERPLEXITY_CONFIG_PATH", str(Path(tmpdir) / "empty.json"))
 
         # 验证自动从 .env 文件读取到 remote_url 与 api_key
         url = get_remote_url()
