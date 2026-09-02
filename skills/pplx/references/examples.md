@@ -1,59 +1,52 @@
-# Practical Agent Usage Scenarios & Examples
+# Query Patterns & Expected Results
 
-This guide provides tested invocation patterns and prompt strategies for common developer, researcher, and AI agent workflows.
+Tested prompts per vertical and the identifiers a grounded answer should contain. Data sources per vertical are listed in [models.md](models.md).
 
 ---
 
-## Scenario 1: Patent & Prior Art Analysis (`--patents`)
-When investigating intellectual property, patent numbers, assignees, or prior art:
+## Patent & Prior Art Analysis (`--patents`)
 
 ```bash
 pplx ask --patents "CRISPR-Cas9 base editing Liu David patent numbers and CPC subclass"
 ```
 
-**Expected Result**:
-- Searches Google Patents, USPTO, WIPO, EPO, and PubChem Patent databases.
-- Identifies patent identifiers (e.g. `US9840699B2`, `WO2021030666A1`), claims, and assignee data.
+**Expected result**: patent identifiers (e.g. `US9840699B2`, `WO2021030666A1`), claims, assignees, and CPC subclasses.
 
 ---
 
-## Scenario 2: Academic & Scientific Research (`--academic`)
-When querying scientific literature, arXiv preprints, or medical studies:
+## Academic & Scientific Research (`--academic`)
 
 ```bash
 pplx ask --academic "Mamba state space models visual representation arXiv papers"
 ```
 
-**Expected Result**:
-- Queries arXiv, PubMed, Semantic Scholar, IEEE, and Nature.
-- Returns scholarly citations with direct arXiv IDs, DOI links, and author lists.
+**Expected result**: direct arXiv IDs, DOI links, venues, and author lists.
 
 ---
 
-## Scenario 3: Financial Markets & SEC Filings (`--finance`)
-When researching ticker financials, earnings reports, or analyst forecasts:
+## Financial Markets & SEC Filings (`--finance`)
 
 ```bash
 pplx ask --finance "NVDA Q2 FY27 gross margins, data center revenue, and analyst price targets"
 ```
 
-**Expected Result**:
-- Connects with Financial Modeling Prep, Fiscal.ai, Quartr transcripts, and SEC 10-Q filings.
-- Returns GAAP/Non-GAAP gross margins, guidance ranges, and analyst consensus targets.
+**Expected result**: GAAP/non-GAAP margins, guidance ranges, and analyst consensus targets tied to SEC 10-K/10-Q filings and earnings transcripts.
 
 ---
 
-## Scenario 4: Social & Community Feedback (`--social`)
-When gathering genuine user feedback, Reddit threads, and forum discussions:
+## Social & Community Feedback (`--social`)
 
 ```bash
 pplx ask --social "FastAPI vs Litestar vs Sanic developer feedback in 2026"
 ```
 
+**Expected result**: named Reddit threads, forum posts, and user opinions with links.
+
 ---
 
-## Scenario 5: High-Reasoning Code & Architecture Search
-When combining specialized models with live search:
+## High-Reasoning Code & Architecture Search
+
+Combine any vertical flag with a specialized model:
 
 ```bash
 pplx ask --model claude-3-7-sonnet "FastAPI 0.115 Pydantic v2 migration error: 'BaseSettings' moved to 'pydantic-settings'"
@@ -61,15 +54,16 @@ pplx ask --model claude-3-7-sonnet "FastAPI 0.115 Pydantic v2 migration error: '
 
 ---
 
-## Scenario 6: OpenAI API Gateway Integration
-Using Python OpenAI SDK with search verticals:
+## OpenAI API Gateway Integration
+
+Using the Python OpenAI SDK against `pplx serve` or a remote endpoint, selecting vertical and model via the compound `model` name:
 
 ```python
 from openai import OpenAI
 
 client = OpenAI(base_url="http://localhost:8000/v1", api_key="none")
 
-# Call Patents vertical with Claude 3.7
+# Patents vertical with Claude 3.7
 response = client.chat.completions.create(
     model="patents:claude-3-7-sonnet",
     messages=[{"role": "user", "content": "Top solid-state battery patents"}],

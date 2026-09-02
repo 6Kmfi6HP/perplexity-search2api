@@ -1,6 +1,6 @@
 # `pplx` CLI Command Reference
 
-Deterministic CLI command manual for AI agents and developers.
+Command and flag manual for the `pplx` CLI. Model aliases and vertical scopes live in [models.md](models.md).
 
 ## Subcommand Directory
 
@@ -26,13 +26,10 @@ pplx ask "<QUERY>" [OPTIONS]
 ```
 
 ### Options
-- `-V`, `--vertical <VERTICAL>`: Select search vertical (`web`, `patents`, `academic`, `finance`, `social`, `health`, `writing`, `wolfram`, `youtube`, `reddit`).
-- `--patents`: Shortcut for `-V patents` (Perplexity Patents search).
-- `--academic`: Shortcut for `-V academic` (Perplexity Academic & research papers search).
-- `--finance`: Shortcut for `-V finance` (Perplexity Finance & market intelligence).
-- `--social`: Shortcut for `-V social` (Social, Reddit, and community discussions).
-- `--model <MODEL>`: Choose AI model (e.g. `claude-3-7-sonnet`, `gpt-5.6`, `grok-4.6`, or compound `patents:claude-3-7-sonnet`).
-- `--mode <MODE>`: `copilot` (default deep search) or `concise` (fast single-pass).
+- `-V`, `--vertical <VERTICAL>`: Select a search vertical; the full table with data sources is in [models.md](models.md).
+- `--patents` / `--academic` / `--finance` / `--social`: Shortcuts for `-V patents` / `-V academic` / `-V finance` / `-V social`.
+- `--model <MODEL>`: Choose an AI model alias or a compound `vertical:model` name (e.g. `claude-3-7-sonnet`, `patents:claude-3-7-sonnet`); alias table in [models.md](models.md).
+- `--mode <MODE>`: `copilot` (default) — full multi-step query planning across 10–30 web sources with rich citations; `concise` — low-latency direct extraction without multi-pass web chaining.
 - `--raw`: Output raw JSON SSE stream events for debugging.
 
 ---
@@ -64,19 +61,19 @@ pplx models [--remote <URL>] [--api-key <KEY>]
 
 ## 4. `pplx info`
 
-Display active session status, subscription tier, and token TTL.
+Display active session status, subscription tier, and token TTL. `--local` inspects local credentials even when a remote endpoint is configured.
 
 ---
 
 ## 5. `pplx refresh`
 
-Renew NextAuth session token (+30 days).
+Renew NextAuth session token (+30 days). `--local` refreshes local credentials even when a remote endpoint is configured.
 
 ---
 
 ## 6. `pplx login`
 
-Extract session token from Chrome/Edge browser.
+Extract session token from Chrome/Edge browser. `--local` forces local extraction even when a remote endpoint is configured.
 
 ---
 

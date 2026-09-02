@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Skills**: rewrote `skills/pplx` for de-duplication and tighter progressive disclosure — SKILL.md now carries one routing table (previously the vertical mapping appeared three times), drops the command/failure tables that duplicated `references/commands.md` and `references/troubleshooting.md`, and states checkable completion criteria (numbered citations; native identifiers per vertical).
+- **Skills**: fixed incorrect `pplx remote test <URL>` syntax in SKILL.md — `remote test` takes no argument.
+- **Skills**: `references/troubleshooting.md` is now the complete recovery manual (absorbed SSE stream-drop and remote-gateway sections); `--mode` semantics consolidated into `references/commands.md`; `references/examples.md` focused on tested prompts plus expected identifiers instead of repeating per-vertical source lists.
+
 ## [0.3.0] - 2026-09-02
 
 ### Fixed
