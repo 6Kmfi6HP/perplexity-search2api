@@ -219,8 +219,10 @@ async def test_non_stream_does_not_block_event_loop(monkeypatch):
 
     from httpx import ASGITransport, AsyncClient
 
-    def slow_ask(*args, **kwargs):
-        _time.sleep(1.0)
+    async def slow_ask(*args, **kwargs):
+        # 端点实际调用 ask_async; 用 asyncio.sleep 模拟"耗时不占事件循环"的上游调用
+        # (不用 time.sleep: 那会真的阻塞事件循环, 破坏本测试的验证前提)
+        await asyncio.sleep(1.0)
         return {
             "query": "hi",
             "answer": "ok",
@@ -229,7 +231,8 @@ async def test_non_stream_does_not_block_event_loop(monkeypatch):
             "raw_event": {},
         }
 
-    monkeypatch.setattr("server.PerplexityClient.ask", slow_ask)
+    slow_mock = AsyncMock(side_effect=slow_ask)
+    monkeypatch.setattr("server.PerplexityClient.ask_async", slow_mock)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -250,6 +253,8 @@ async def test_non_stream_does_not_block_event_loop(monkeypatch):
         assert elapsed < 0.5, f"/health 被阻塞了 {elapsed:.2f}s"
         resp = await chat_task
         assert resp.status_code == 200
+        # 端点必须走异步路径 (否则 mock 未被调用, CI 无凭据环境会真实外呼并 500)
+        slow_mock.assert_awaited_once()
 
 
 # ---------- 自环防护回归测试 ----------
