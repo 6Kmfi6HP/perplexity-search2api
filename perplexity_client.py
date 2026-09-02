@@ -26,7 +26,7 @@ from typing import Any
 import httpx
 
 from perplexity_auth import APP_USER_AGENT, PerplexityAuthManager
-from perplexity_config import get_remote_api_key, get_remote_url
+from perplexity_config import get_remote_api_key, get_remote_url, get_timeout
 
 ASK_ENDPOINT = "https://www.perplexity.ai/rest/sse/perplexity_ask"
 
@@ -458,11 +458,11 @@ class RemotePerplexityClient:
         self,
         remote_url: str,
         api_key: str | None = None,
-        timeout: float = 120.0,
+        timeout: float | None = None,
     ):
         self.remote_url = remote_url.strip().rstrip("/")
         self.api_key = api_key
-        self.timeout = timeout
+        self.timeout = timeout if timeout is not None else get_timeout(120.0)
 
     @property
     def base_url(self) -> str:
@@ -471,7 +471,7 @@ class RemotePerplexityClient:
     def _build_headers(self) -> dict[str, str]:
         headers = {
             "Content-Type": "application/json",
-            "User-Agent": "Perplexity-CLI-Remote/2.4.0",
+            "User-Agent": "Perplexity-CLI-Remote/0.2.0",
         }
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -602,8 +602,8 @@ class RemotePerplexityClient:
                 for line in response.iter_lines():
                     if not line:
                         continue
-                    if line.startswith("data: "):
-                        data_str = line[6:].strip()
+                    if line.startswith("data:"):
+                        data_str = line[5:].strip()
                         if data_str == "[DONE]":
                             break
                         try:
@@ -689,8 +689,8 @@ class RemotePerplexityClient:
                 async for line in response.aiter_lines():
                     if not line:
                         continue
-                    if line.startswith("data: "):
-                        data_str = line[6:].strip()
+                    if line.startswith("data:"):
+                        data_str = line[5:].strip()
                         if data_str == "[DONE]":
                             break
                         try:
@@ -840,6 +840,7 @@ class PerplexityClient:
         remote_url: str | None = None,
         api_key: str | None = None,
     ):
+        self.default_timeout = get_timeout(60.0)
         if auth_manager is not None or remote_url == "":
             self.is_remote = False
             self.remote_client = None
@@ -983,12 +984,13 @@ class PerplexityClient:
         query: str,
         model: str = "experimental",
         mode: str = "concise",
-        timeout: float = 60.0,
+        timeout: float | None = None,
         vertical: str | None = None,
         query_source: str | None = None,
         search_focus: str | None = None,
         sources: list[str] | None = None,
         canonical_page_context: dict[str, Any] | None = None,
+        _retried_401: bool = False,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """
         原生异步流式请求 Perplexity API，实时产出：
@@ -996,6 +998,7 @@ class PerplexityClient:
         2. 增量文本 (type="delta")
         3. 完整文本快照与引用源 (sources)
         """
+        timeout = timeout if timeout is not None else self.default_timeout
         if self.is_remote and self.remote_client:
             async for item in self.remote_client.ask_stream_async(
                 query,
@@ -1028,8 +1031,8 @@ class PerplexityClient:
             async with client.stream(
                 "POST", ASK_ENDPOINT, headers=headers, json=payload
             ) as response:
-                if response.status_code == 401:
-                    # Token 过期，强制刷新并重试一次
+                if response.status_code == 401 and not _retried_401:
+                    # Token 过期，强制刷新并重试一次 (上限一次，防止持续 401 导致无限刷新循环)
                     self.auth_manager.refresh(force=True)
                     headers = self._build_headers(vertical=parsed_vertical)
                     async for item in self.ask_async_stream(
@@ -1042,6 +1045,7 @@ class PerplexityClient:
                         search_focus=search_focus,
                         sources=sources,
                         canonical_page_context=canonical_page_context,
+                        _retried_401=True,
                     ):
                         yield item
                     return
@@ -1060,8 +1064,8 @@ class PerplexityClient:
                 async for line in response.aiter_lines():
                     if not line:
                         continue
-                    if line.startswith("data: "):
-                        data_str = line[6:].strip()
+                    if line.startswith("data:"):
+                        data_str = line[5:].strip()
                         if not data_str:
                             continue
                         try:
@@ -1099,14 +1103,16 @@ class PerplexityClient:
         query: str,
         model: str = "experimental",
         mode: str = "concise",
-        timeout: float = 60.0,
+        timeout: float | None = None,
         vertical: str | None = None,
         query_source: str | None = None,
         search_focus: str | None = None,
         sources: list[str] | None = None,
         canonical_page_context: dict[str, Any] | None = None,
+        _retried_401: bool = False,
     ) -> Generator[dict[str, Any], None, None]:
         """同步流式请求 Perplexity API"""
+        timeout = timeout if timeout is not None else self.default_timeout
         if self.is_remote and self.remote_client:
             yield from self.remote_client.ask_stream(
                 query,
@@ -1136,7 +1142,8 @@ class PerplexityClient:
 
         with httpx.Client(timeout=timeout) as client:
             with client.stream("POST", ASK_ENDPOINT, headers=headers, json=payload) as response:
-                if response.status_code == 401:
+                if response.status_code == 401 and not _retried_401:
+                    # 上限一次，防止持续 401 导致无限刷新循环
                     self.auth_manager.refresh(force=True)
                     headers = self._build_headers(vertical=parsed_vertical)
                     yield from self.ask_stream(
@@ -1149,6 +1156,7 @@ class PerplexityClient:
                         search_focus=search_focus,
                         sources=sources,
                         canonical_page_context=canonical_page_context,
+                        _retried_401=True,
                     )
                     return
 
@@ -1165,8 +1173,8 @@ class PerplexityClient:
                 for line in response.iter_lines():
                     if not line:
                         continue
-                    if line.startswith("data: "):
-                        data_str = line[6:].strip()
+                    if line.startswith("data:"):
+                        data_str = line[5:].strip()
                         if not data_str:
                             continue
                         try:
@@ -1203,7 +1211,7 @@ class PerplexityClient:
         query: str,
         model: str = "experimental",
         mode: str = "concise",
-        timeout: float = 60.0,
+        timeout: float | None = None,
         vertical: str | None = None,
         query_source: str | None = None,
         search_focus: str | None = None,
@@ -1211,6 +1219,7 @@ class PerplexityClient:
         canonical_page_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """异步非流式请求封装"""
+        timeout = timeout if timeout is not None else self.default_timeout
         if self.is_remote and self.remote_client:
             return await self.remote_client.ask_async(
                 query,
@@ -1261,7 +1270,7 @@ class PerplexityClient:
         query: str,
         model: str = "experimental",
         mode: str = "concise",
-        timeout: float = 60.0,
+        timeout: float | None = None,
         vertical: str | None = None,
         query_source: str | None = None,
         search_focus: str | None = None,
@@ -1269,6 +1278,7 @@ class PerplexityClient:
         canonical_page_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """同步非流式完整回答提取"""
+        timeout = timeout if timeout is not None else self.default_timeout
         final_answer = ""
         sources_list: list[dict[str, Any]] = []
         if self.is_remote and self.remote_client:

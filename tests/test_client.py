@@ -105,3 +105,61 @@ async def test_perplexity_client_ask_async_mock(mock_async_stream):
     assert res["answer"] == "Async answer from Perplexity."
     assert len(res["sources"]) == 1
     assert res["sources"][0]["url"] == "https://example.com/async"
+
+
+# ---------- 修复回归测试 ----------
+
+
+def test_ask_stream_401_retry_capped():
+    """回归: 持续 401 时 refresh+重试必须封顶一次，不得无限刷新循环"""
+    from unittest.mock import MagicMock, patch
+
+    import pytest
+
+    class Always401:
+        status_code = 401
+
+        def read(self):
+            return b"unauthorized"
+
+    class StreamCtx:
+        def __enter__(self):
+            return Always401()
+
+        def __exit__(self, *args):
+            return False
+
+    with patch("httpx.Client.stream", return_value=StreamCtx()):
+        auth_manager = MagicMock()
+        auth_manager.get_valid_token.return_value = "tok"
+        client = PerplexityClient(auth_manager=auth_manager)
+        with pytest.raises(RuntimeError, match="401"):
+            list(client.ask_stream("hello"))
+        assert auth_manager.refresh.call_count == 1
+
+
+async def test_ask_async_stream_401_retry_capped():
+    """回归: 异步路径同样封顶一次 401 重试"""
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    import pytest
+
+    class Always401:
+        status_code = 401
+        aread = AsyncMock(return_value=b"unauthorized")
+
+    class AsyncStreamCtx:
+        async def __aenter__(self):
+            return Always401()
+
+        async def __aexit__(self, *args):
+            return False
+
+    with patch("httpx.AsyncClient.stream", return_value=AsyncStreamCtx()):
+        auth_manager = MagicMock()
+        auth_manager.get_valid_token.return_value = "tok"
+        client = PerplexityClient(auth_manager=auth_manager)
+        with pytest.raises(RuntimeError, match="401"):
+            async for _ in client.ask_async_stream("hello"):
+                pass
+        assert auth_manager.refresh.call_count == 1
