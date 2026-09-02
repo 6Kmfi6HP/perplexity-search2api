@@ -29,6 +29,7 @@ import secrets
 import time
 import uuid
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -56,7 +57,7 @@ from perplexity_client import (
     PerplexityClient,
     parse_model_and_vertical,
 )
-from perplexity_config import load_config
+from perplexity_config import get_remote_url, load_config
 
 app = FastAPI(
     title="Perplexity Search2API Gateway",
@@ -83,6 +84,81 @@ DEFAULT_MODEL = (
     or load_config().get("default_model")
     or "experimental"
 )
+
+
+# =====================================================================
+# 自环防护 (Self-Loop Guard)
+# remote 配置只应存在于客户端侧; 网关进程若读到指向自身的 remote_url,
+# 每个请求都会变成 "自己调用自己" 的死循环 (表现为长耗时后空答案)
+# =====================================================================
+
+_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+
+
+def _parse_remote_endpoint(remote_url: str) -> tuple[str, int]:
+    parsed = urlparse(remote_url)
+    host = (parsed.hostname or "").lower()
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    return host, port
+
+
+def _detect_self_remote_at_startup() -> str | None:
+    """启动自检: 仅当 PORT 环境变量明确设置且 remote_url 指向自身回环端口时命中"""
+    remote = get_remote_url()
+    if not remote:
+        return None
+    port_env = os.getenv("PORT")
+    if not port_env:
+        # 无法确认监听端口时不误判 (uvicorn --port 可不经 PORT env 指定)
+        return None
+    try:
+        own_port = int(port_env)
+    except ValueError:
+        return None
+    remote_host, remote_port = _parse_remote_endpoint(remote)
+    if remote_host in _LOOPBACK_HOSTS and remote_port == own_port:
+        return remote
+    return None
+
+
+_SELF_REMOTE_URL = _detect_self_remote_at_startup()
+if _SELF_REMOTE_URL:
+    import logging
+
+    logging.getLogger("uvicorn.error").critical(
+        "配置的 remote_url (%s) 指向本网关自身端口 (PORT=%s)，会造成自调用死循环!"
+        "remote 配置只应存在于客户端侧，请清除网关进程的 remote 配置后重启。",
+        _SELF_REMOTE_URL,
+        os.getenv("PORT"),
+    )
+
+
+def _reject_self_loop(remote_url: str | None, request: Request) -> None:
+    """请求期硬防护: remote_url 指向本请求的监听端口时立即拒绝, 避免死循环"""
+    if not remote_url:
+        return
+    remote_host, remote_port = _parse_remote_endpoint(remote_url)
+    server = request.scope.get("server") or (None, None)
+    own_port = server[1]
+    if not own_port:
+        return
+    req_host = (request.url.hostname or "").lower()
+    host_is_self = remote_host in _LOOPBACK_HOSTS or remote_host == req_host
+    if host_is_self and remote_port == own_port:
+        raise HTTPException(
+            status_code=508,
+            detail={
+                "error": {
+                    "message": (
+                        f"配置的 remote_url ({remote_url}) 指向本网关自身 (端口 {own_port})，"
+                        "会造成自调用死循环。remote 配置只应存在于客户端侧，"
+                        "请清除网关进程的 remote 配置 (pplx remote unset / 删除对应环境变量)。"
+                    ),
+                    "type": "invalid_request_error",
+                    "code": "self_loop_detected",
+                }
+            },
+        )
 
 
 # =====================================================================
@@ -753,6 +829,7 @@ async def chat_completions(
         effective_model, explicit_vertical=explicit_vertical
     )
 
+    _reject_self_loop(get_remote_url(), raw_request)
     client = PerplexityClient()
 
     # 流式调用模式 (Streaming SSE)
@@ -913,6 +990,7 @@ async def search_endpoint(
         req_model, explicit_vertical=req_vertical
     )
 
+    _reject_self_loop(get_remote_url(), request)
     client = PerplexityClient()
     try:
         res = await client.ask_async(

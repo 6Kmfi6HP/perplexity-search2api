@@ -2,6 +2,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from server import app
@@ -249,3 +250,38 @@ async def test_non_stream_does_not_block_event_loop(monkeypatch):
         assert elapsed < 0.5, f"/health 被阻塞了 {elapsed:.2f}s"
         resp = await chat_task
         assert resp.status_code == 200
+
+
+# ---------- 自环防护回归测试 ----------
+
+
+def test_self_loop_request_guard(monkeypatch):
+    """回归: 网关进程读到指向自身端口的 remote_url 时, chat 请求必须被 508 拒绝"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cfg = Path(tmpdir) / "cfg.json"
+        cfg.write_text('{"remote_url": "http://127.0.0.1:8000"}')
+        monkeypatch.setenv("PERPLEXITY_CONFIG_PATH", str(cfg))
+        import server as server_mod
+
+        # 直接调用守护函数, 模拟 ASGI scope server=(host, 8000)
+        req = MagicMock()
+        req.scope = {"server": ("127.0.0.1", 8000), "type": "http"}
+        req.url.hostname = "127.0.0.1"
+        with pytest.raises(Exception) as exc_info:
+            server_mod._reject_self_loop("http://127.0.0.1:8000", req)
+        assert "508" in str(getattr(exc_info.value, "status_code", "")) or "508" in str(
+            exc_info.value
+        )
+        # 非自环目标不拦截
+        server_mod._reject_self_loop("http://127.0.0.1:9999", req)
+        server_mod._reject_self_loop(None, req)
+
+
+def test_self_loop_different_port_allowed(monkeypatch):
+    """同主机不同端口不算自环"""
+    import server as server_mod
+
+    req = MagicMock()
+    req.scope = {"server": ("127.0.0.1", 8000), "type": "http"}
+    req.url.hostname = "127.0.0.1"
+    server_mod._reject_self_loop("http://127.0.0.1:8001", req)
