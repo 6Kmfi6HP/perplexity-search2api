@@ -13,6 +13,7 @@ import argparse
 import json
 import sys
 import time
+from urllib.parse import urlparse
 
 from rich.console import Console
 from rich.live import Live
@@ -36,6 +37,7 @@ from perplexity_client import (
 )
 from perplexity_config import (
     get_config_path,
+    get_default_model,
     get_remote_api_key,
     get_remote_url,
     load_config,
@@ -422,7 +424,8 @@ def cmd_ask(args):
     api_key = get_remote_api_key(getattr(args, "api_key", None))
 
     query = args.query
-    raw_model = args.model
+    # 未显式传 --model 时回退到配置的默认模型 (default_model / PERPLEXITY_DEFAULT_MODEL)
+    raw_model = args.model or get_default_model()
     mode = args.mode
 
     # 解析垂直搜索模式
@@ -523,6 +526,22 @@ def cmd_serve(args):
     import uvicorn
 
     from server import app
+
+    # 自环防护: 网关进程不应携带指向自身的 remote 配置 (会造成自调用死循环)
+    cfg_url = get_remote_url(None)
+    if cfg_url:
+        cfg_port = urlparse(cfg_url).port or (443 if cfg_url.startswith("https") else 80)
+        if cfg_port == args.port:
+            console.print(
+                f"[bold red]✗ 拒绝启动: 当前配置的 remote_url ({cfg_url}) 指向即将监听的端口 {args.port}。[/bold red]"
+            )
+            console.print(
+                "remote 配置只应存在于客户端侧，网关进程自带该配置会造成自调用死循环。"
+            )
+            console.print(
+                "请先运行 [bold cyan]`pplx remote unset`[/bold cyan] (或清除对应环境变量) 后重启。"
+            )
+            sys.exit(1)
 
     console.print(
         f"[bold green]🚀 正在启动 Perplexity Search2API 网关服务: http://{args.host}:{args.port}[/bold green]"
@@ -653,8 +672,8 @@ def main(argv=None):
     ask_p.add_argument(
         "--model",
         type=str,
-        default="experimental",
-        help="模型选择 (如 experimental, claude-3-7-sonnet, grok-4.6, 或复合模型如 patents:claude-3-7-sonnet)",
+        default=None,
+        help="模型选择 (如 experimental, claude-3-7-sonnet, grok-4.6, 或复合模型如 patents:claude-3-7-sonnet; 默认取 default_model 配置)",
     )
     ask_p.add_argument(
         "--mode",

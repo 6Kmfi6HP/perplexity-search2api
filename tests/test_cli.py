@@ -32,6 +32,7 @@ def test_cli_main_dispatch():
     # 测试未输入任何命令时直接返回并不抛异常
     main([])
 
+
 # ---------- get_token_ttl_str 回归测试 ----------
 
 
@@ -84,3 +85,17 @@ def test_get_token_ttl_str_legacy_expires_key():
     }
     result = get_token_ttl_str(creds)
     assert "已过期" in result
+
+
+def test_serve_rejects_self_remote_config(monkeypatch, tmp_path):
+    """pplx serve 检测到 remote_url 指向即将监听的端口时拒绝启动 (防自调用死循环)"""
+    import pytest
+
+    from cli import main
+
+    cfg = tmp_path / "cfg.json"
+    cfg.write_text('{"remote_url": "http://127.0.0.1:8765"}')
+    monkeypatch.setenv("PERPLEXITY_CONFIG_PATH", str(cfg))
+    with pytest.raises(SystemExit) as e:
+        main(["serve", "--port", "8765"])
+    assert e.value.code == 1
