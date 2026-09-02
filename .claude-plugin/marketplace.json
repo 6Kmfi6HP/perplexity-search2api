@@ -8,14 +8,14 @@
   },
   "metadata": {
     "description": "Perplexity Search2API Agent Skills & CLI plugin marketplace for Claude Code",
-    "version": "0.2.0"
+    "version": "0.3.0"
   },
   "plugins": [
     {
       "name": "pplx",
       "source": ".",
       "description": "Real-time AI web search, multi-model reasoning, and session gateway via pplx CLI command",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "homepage": "https://github.com/6Kmfi6HP/perplexity-search2api",
       "category": "search",
       "tags": [

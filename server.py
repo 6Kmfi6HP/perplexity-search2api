@@ -62,7 +62,7 @@ from perplexity_config import get_remote_url, load_config
 app = FastAPI(
     title="Perplexity Search2API Gateway",
     description="将 Perplexity 深度联网搜索与全系列前沿大模型无缝转换为标准 OpenAI /v1 接口，支持 Patents/Academic/Finance 等专业搜索垂直模型",
-    version="0.2.0",
+    version="0.3.0",
 )
 
 # 允许跨域请求 (CORS)
@@ -697,7 +697,7 @@ async def root():
         "service": "Perplexity Search2API",
         "name": "Perplexity Search2API Gateway",
         "status": "online",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "features": {
             "openai_compatible": "/v1/chat/completions",
             "models_endpoint": "/v1/models",

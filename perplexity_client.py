@@ -471,7 +471,7 @@ class RemotePerplexityClient:
     def _build_headers(self) -> dict[str, str]:
         headers = {
             "Content-Type": "application/json",
-            "User-Agent": "Perplexity-CLI-Remote/0.2.0",
+            "User-Agent": "Perplexity-CLI-Remote/0.3.0",
         }
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
