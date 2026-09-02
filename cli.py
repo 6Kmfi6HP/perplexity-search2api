@@ -50,7 +50,8 @@ def get_token_ttl_str(creds: dict | None) -> str:
     """计算会话凭证剩余有效期字符串"""
     if not creds:
         return "未知"
-    expires = creds.get("expires")
+    # refresh 后保存的键为 expires_at，兼容旧版 expires
+    expires = creds.get("expires_at") or creds.get("expires")
     if not expires:
         return "长期有效 (Persistent)"
     try:
