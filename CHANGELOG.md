@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Security**: `/auth/info` no longer returns `session_token`, `org_token`, or browser `cookies` (redacted as `***configured***`); API key comparison now constant-time (`secrets.compare_digest`); CORS wildcard origins no longer claim `allow_credentials`.
+- **Security**: credentials file is written with `0600` permissions.
+- **Server**: non-streaming `/v1/chat/completions`, `/search`, and `/auth/refresh` no longer block the event loop (async client / threadpool); `/health` stays responsive during long searches.
+- **Server**: self-loop guard — if a gateway process is (mis)configured with a `remote_url` pointing at its own port, requests are rejected immediately with `508 Loop Detected` instead of recursing into itself; `pplx serve` refuses to start and a startup `CRITICAL` warning is logged when the misconfiguration is detectable.
+- **Server**: SSE `data: [DONE]` is emitted after the normal/errored completion instead of `yield` inside `finally` (client-disconnect cancellation no longer corrupts stream teardown).
+- **Client**: 401 refresh-retry is capped at one attempt (previously unbounded recursion on persistent 401).
+- **Client**: SSE parser accepts both `data: ` and `data:` prefixes.
+- **Client**: org cookie parsing keeps values containing `=` (base64 padding).
+- **Auth**: browser re-extraction failure during refresh no longer masks the existing valid token (env-token Docker deployments keep working).
+- **Config**: `default_model` and `timeout` are now actually consumed by the CLI and server (previously stored but ignored); `PERPLEXITY_TIMEOUT` env var supported.
+- **Docker**: container `CMD` respects the `PORT` environment variable (HEALTHCHECK already did).
+- **Docs**: `perplexity_config` module docstring now matches the real precedence order.
+
 ## [0.2.0] - 2026-03-02
 
 ### Added
