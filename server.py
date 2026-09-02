@@ -25,6 +25,7 @@ import asyncio
 import json
 import os
 import re
+import secrets
 import time
 import uuid
 from typing import Any
@@ -55,18 +56,20 @@ from perplexity_client import (
     PerplexityClient,
     parse_model_and_vertical,
 )
+from perplexity_config import load_config
 
 app = FastAPI(
     title="Perplexity Search2API Gateway",
     description="将 Perplexity 深度联网搜索与全系列前沿大模型无缝转换为标准 OpenAI /v1 接口，支持 Patents/Academic/Finance 等专业搜索垂直模型",
-    version="2.4.0",
+    version="0.2.0",
 )
 
 # 允许跨域请求 (CORS)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    # 通配源不允许携带凭据 (CORS 规范会拒绝该组合)，此处不启用 credentials
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -74,6 +77,12 @@ app.add_middleware(
 # 可选 API Key 保护 (环境变量: PERPLEXITY_PROXY_KEY 或 API_KEY)
 PROXY_API_KEY = os.getenv("PERPLEXITY_PROXY_KEY") or os.getenv("API_KEY")
 DEFAULT_MODE = os.getenv("PERPLEXITY_DEFAULT_MODE", "concise")
+# 默认模型 (环境变量 PERPLEXITY_DEFAULT_MODEL 或配置文件 default_model)
+DEFAULT_MODEL = (
+    os.getenv("PERPLEXITY_DEFAULT_MODEL")
+    or load_config().get("default_model")
+    or "experimental"
+)
 
 
 # =====================================================================
@@ -102,7 +111,7 @@ async def verify_auth(request: Request):
     elif api_key_header:
         token = api_key_header.strip()
 
-    if not token or token != required_key:
+    if not token or not secrets.compare_digest(token, required_key):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Unauthorized: 无效的 API Key",
@@ -277,7 +286,7 @@ class ExtendedChatCompletionChunk(ChatCompletionChunk):
 
 
 class ChatCompletionRequest(BaseModel):
-    model: str = "experimental"
+    model: str | None = None
     messages: list[ChatMessage]
     stream: bool | None = False
     mode: str | None = None
@@ -296,7 +305,7 @@ class ChatCompletionRequest(BaseModel):
 
 class SearchRequest(BaseModel):
     query: str
-    model: str | None = "experimental"
+    model: str | None = None
     mode: str | None = "concise"
     vertical: str | None = None
     search_focus: str | None = None
@@ -594,8 +603,10 @@ async def sse_chat_stream_generator(
             }
         }
         yield f"data: {json.dumps(err_payload, ensure_ascii=False)}\n\n"
-    finally:
-        yield "data: [DONE]\n\n"
+
+    # [DONE] 仅在正常完成后发送；不要放在 finally 中 yield ——
+    # 客户端断连时取消异常会注入 finally 里的 yield，导致收尾行为错乱
+    yield "data: [DONE]\n\n"
 
 
 # =====================================================================
@@ -610,7 +621,7 @@ async def root():
         "service": "Perplexity Search2API",
         "name": "Perplexity Search2API Gateway",
         "status": "online",
-        "version": "2.4.0",
+        "version": "0.2.0",
         "features": {
             "openai_compatible": "/v1/chat/completions",
             "models_endpoint": "/v1/models",
@@ -732,13 +743,14 @@ async def chat_completions(
     """
     prompt_query = format_messages_to_prompt(req.messages)
     effective_mode = req.mode or DEFAULT_MODE
+    effective_model = req.model or DEFAULT_MODEL
     prompt_tokens = estimate_tokens(prompt_query)
 
     # 优先从 Header 或 Body 解析垂直搜索领域
     header_vertical = raw_request.headers.get("X-Perplexity-Vertical")
     explicit_vertical = req.vertical or header_vertical
     actual_model, resolved_vertical = parse_model_and_vertical(
-        req.model, explicit_vertical=explicit_vertical
+        effective_model, explicit_vertical=explicit_vertical
     )
 
     client = PerplexityClient()
@@ -759,8 +771,8 @@ async def chat_completions(
             linkify_in_text=bool(req.linkify_in_text),
             enable_reasoning=bool(req.enable_reasoning),
             smooth_stream=bool(req.smooth_stream),
-            throttle_step=req.throttle_step or 6,
-            throttle_delay=req.throttle_delay or 0.015,
+            throttle_step=req.throttle_step,
+            throttle_delay=req.throttle_delay,
             vertical=resolved_vertical,
             query_source=req.query_source,
             search_focus=req.search_focus,
@@ -779,8 +791,9 @@ async def chat_completions(
         )
 
     # 非流式调用模式 (Non-Streaming)
+    # 使用异步客户端，避免长耗时搜索阻塞事件循环 (健康检查与并发请求)
     try:
-        result = client.ask(
+        result = await client.ask_async(
             query=prompt_query,
             model=actual_model,
             mode=effective_mode,
@@ -820,7 +833,7 @@ async def chat_completions(
                 )
             ],
             created=int(time.time()),
-            model=result.get("model") or req.model,
+            model=result.get("model") or effective_model,
             object="chat.completion",
             system_fingerprint="fp_perplexity",
             usage=CompletionUsage(
@@ -858,7 +871,7 @@ async def search_endpoint(
     request: Request,
     q: str | None = Query(None, description="搜索关键词"),
     query: str | None = Query(None, description="搜索关键词"),
-    model: str = Query("experimental", description="大模型名称或别名"),
+    model: str | None = Query(None, description="大模型名称或别名 (默认取 default_model 配置)"),
     mode: str = Query("concise", description="搜索模式 (concise / copilot)"),
     vertical: str | None = Query(
         None,
@@ -895,13 +908,14 @@ async def search_endpoint(
     if not search_q or not search_q.strip():
         raise HTTPException(status_code=400, detail="query 参数不能为空")
 
+    req_model = req_model or DEFAULT_MODEL
     actual_model, parsed_vertical = parse_model_and_vertical(
         req_model, explicit_vertical=req_vertical
     )
 
     client = PerplexityClient()
     try:
-        res = client.ask(
+        res = await client.ask_async(
             search_q,
             model=actual_model,
             mode=req_mode,
@@ -927,21 +941,32 @@ async def search_endpoint(
 
 @app.get("/auth/info")
 async def auth_info(user=Depends(verify_auth)):
-    """查看当前服务端配置的凭据与账号状态"""
+    """查看当前服务端配置的凭据与账号状态 (敏感字段脱敏，不回传会话 Token)"""
     creds = load_credentials()
     if not creds:
         raise HTTPException(
             status_code=404, detail="未找到任何凭证，请先登录提取"
         )
-    return creds
+
+    # 脱敏: session_token / org_token / cookies 属于登录凭据，不应经 API 外泄
+    redacted = dict(creds)
+    if redacted.get("session_token"):
+        redacted["session_token"] = "***configured***"
+    if redacted.get("org_token"):
+        redacted["org_token"] = "***configured***"
+    if isinstance(redacted.get("cookies"), dict):
+        redacted["cookies"] = dict.fromkeys(redacted["cookies"], "***")
+    return redacted
 
 
 @app.post("/auth/refresh")
 async def auth_refresh(user=Depends(verify_auth)):
     """手动执行凭据滚动刷新 (NextAuth 延长 30 天)"""
+    from fastapi.concurrency import run_in_threadpool
+
     manager = PerplexityAuthManager()
     try:
-        res = manager.refresh(force=True)
+        res = await run_in_threadpool(manager.refresh, force=True)
         return {"status": "refreshed", "data": res}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"刷新失败: {e}")

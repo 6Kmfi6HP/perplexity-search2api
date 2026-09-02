@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -154,7 +154,7 @@ def test_server_chat_completions_with_vertical_compound_model():
         "vertical": "patents",
     }
 
-    with patch("server.PerplexityClient.ask", return_value=mock_res) as mock_ask:
+    with patch("server.PerplexityClient.ask_async", new=AsyncMock(return_value=mock_res)) as mock_ask:
         payload = {
             "model": "patents:claude-3-7-sonnet",
             "messages": [{"role": "user", "content": "CRISPR patents"}],
@@ -181,7 +181,7 @@ def test_server_chat_completions_with_explicit_vertical_body():
         "vertical": "academic",
     }
 
-    with patch("server.PerplexityClient.ask", return_value=mock_res) as mock_ask:
+    with patch("server.PerplexityClient.ask_async", new=AsyncMock(return_value=mock_res)) as mock_ask:
         payload = {
             "model": "sonar",
             "vertical": "academic",
@@ -207,7 +207,7 @@ def test_server_search_endpoint_with_vertical():
         "vertical": "finance",
     }
 
-    with patch("server.PerplexityClient.ask", return_value=mock_res) as mock_ask:
+    with patch("server.PerplexityClient.ask_async", new=AsyncMock(return_value=mock_res)) as mock_ask:
         resp = client.get("/search?q=NVDA+margins&vertical=finance")
         assert resp.status_code == 200
         data = resp.json()
