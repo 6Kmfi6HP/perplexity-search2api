@@ -21,7 +21,7 @@ RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 # Install project dependencies
-COPY requirements.txt pyproject.toml ./
+COPY requirements.txt pyproject.toml README.md server.py perplexity_auth.py perplexity_client.py perplexity_config.py cli.py ./
 RUN pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir .
 
@@ -70,4 +70,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD python -c "import urllib.request, os; port = os.environ.get('PORT', '8000'); urllib.request.urlopen(f'http://localhost:{port}/health')" || exit 1
 
 # Start the gateway server
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port ${PORT:-8000}"]
