@@ -99,3 +99,14 @@ def test_auth_manager_get_valid_token_extract():
 def test_auth_manager_get_valid_token_existing():
     manager = PerplexityAuthManager({"session_token": "existing_valid_token"})
     assert manager.get_valid_token() == "existing_valid_token"
+
+
+def test_save_credentials_permissions():
+    """回归: 凭据文件必须以 0600 权限写入"""
+    import stat
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_file = Path(tmpdir) / "perm_session.json"
+        save_credentials({"session_token": "tok"}, path=tmp_file)
+        mode = stat.S_IMODE(tmp_file.stat().st_mode)
+        assert mode == 0o600

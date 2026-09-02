@@ -62,11 +62,12 @@ def load_credentials(path: Path | None = None) -> dict[str, Any]:
 
 
 def save_credentials(data: dict[str, Any], path: Path | None = None) -> None:
-    """保存凭据到磁盘"""
+    """保存凭据到磁盘 (写入 0600 权限，防止其他用户读取会话 Token)"""
     target = path or get_credentials_path()
     target.parent.mkdir(parents=True, exist_ok=True)
     with open(target, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
+    target.chmod(0o600)
 
 
 def extract_from_browser(url: str = "https://www.perplexity.ai") -> dict[str, Any]:
@@ -208,7 +209,8 @@ class PerplexityAuthManager:
                     self.session_token = new_token
                     self.credentials["session_token"] = new_token
                 if "__Secure-pplx.session." in sc:
-                    org_cookie_val = sc.split("=")[1].split(";")[0]
+                    # 按 first "=" 切分，避免 base64 padding 中的 "=" 被误当分隔符截断
+                    org_cookie_val = sc.split("=", 1)[1].split(";")[0]
                     self.credentials["org_token"] = org_cookie_val
 
             data = resp.json()
@@ -237,9 +239,13 @@ class PerplexityAuthManager:
             try:
                 self.refresh()
             except Exception:
-                # 刷新失败时尝试重新从浏览器提取
-                creds = extract_from_browser()
-                self.credentials = creds
-                self.session_token = self.credentials.get("session_token", "")
+                # 刷新失败时尝试重新从浏览器提取；仍失败则沿用现有 token，
+                # 由后续请求的 401 兜底 (环境变量注入 token 的 Docker 场景无浏览器可提取)
+                try:
+                    creds = extract_from_browser()
+                    self.credentials = creds
+                    self.session_token = self.credentials.get("session_token", "")
+                except Exception:
+                    pass
 
         return self.session_token
