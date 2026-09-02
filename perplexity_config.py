@@ -5,8 +5,9 @@ Perplexity Search2API 配置管理模块 (Perplexity Config Manager)
   2. 环境变量与 .env 配置文件 (./.env, ~/.env)
   3. TOML 配置文件 (./pplx.toml, ~/.pplx.toml, ./pyproject.toml 中的 [tool.pplx])
   4. YAML 配置文件 (./.perplexity.yaml, ~/.perplexity.yaml)
-- 支持远端 API 端点 (Remote URL)、API Key 与默认模型的持久化与多源合并
-- 统一优先级: 命令行参数 > 系统环境变量 > 本地/用户目录配置文件 (.env / JSON / TOML / YAML)
+- 支持远端 API 端点 (Remote URL)、API Key、默认模型与超时的持久化与多源合并
+- 文件合并优先级 (后者覆盖前者): .env < TOML < YAML < 主 JSON 配置文件;
+  运行时取值优先级: 命令行参数 > 系统环境变量 > 配置文件
 """
 
 import json
@@ -308,6 +309,34 @@ def get_remote_api_key(override: str | None = None) -> str | None:
         return openai_key.strip()
 
     return None
+
+
+def get_default_model(override: str | None = None) -> str:
+    """
+    解析默认模型
+    优先级: CLI 参数 > 环境变量 PERPLEXITY_DEFAULT_MODEL > 配置文件 default_model > experimental
+    """
+    if override and override.strip():
+        return override.strip()
+    val = os.getenv("PERPLEXITY_DEFAULT_MODEL")
+    if val and val.strip():
+        return val.strip()
+    config = load_config()
+    if config.get("default_model"):
+        return str(config["default_model"]).strip()
+    return "experimental"
+
+
+def get_timeout(default: float = 120.0) -> float:
+    """解析请求超时配置 (环境变量 PERPLEXITY_TIMEOUT 或配置文件 timeout 键)"""
+    val = os.getenv("PERPLEXITY_TIMEOUT") or load_config().get("timeout")
+    try:
+        timeout_val = float(val)
+        if timeout_val > 0:
+            return timeout_val
+    except (TypeError, ValueError):
+        pass
+    return default
 
 
 def set_remote_config(
